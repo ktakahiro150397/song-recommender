@@ -18,7 +18,7 @@ sound_dirs = [
     "data/scsp_mv",
     "data/gakumas_mv",
     "data/utada",
-    "data/million",
+    "F:/million",
 ]
 
 
@@ -227,11 +227,9 @@ if __name__ == "__main__":
     # search_song()
 
     # 連鎖検索の例（複数DBから最も近いものを選択）
-    start_file = (
-        "【シャニソン】黛 冬優子「SOS」MV 【アイドルマスター】 [zny-LI3hUPM].wav"
-    )
+    start_file = "宇多田ヒカル - Be My Last [NFWQpe3P1_g].wav"
     chain_search(
         start_filename=start_file,
         dbs=[db_full, db_balance, db_minimal],
-        n_songs=30,
+        n_songs=60,
     )

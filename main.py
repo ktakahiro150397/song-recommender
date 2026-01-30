@@ -14,11 +14,11 @@ sound_dir = "data/sample_sound"
 
 
 def add_songs(db: SongVectorDB, extractor: FeatureExtractor, filename: str):
-    print(f"Checking {filename}...")
+    # print(f"Checking {filename}...")
 
     exist_song = db.get_song(song_id=filename)
     if exist_song is not None:
-        print(f"Skipping {filename}, already in DB.")
+        # print(f"Skipping {filename}, already in DB.")
         return
 
     if filename.endswith(".wav") or filename.endswith(".mp3"):
@@ -57,14 +57,12 @@ def search_song_from_db(db: SongVectorDB, song_id: str):
             search_result["metadatas"][0],
         )
     ):
-        print(f"Rank {idx + 1}:")
-        print(f"  Song ID: {song_id}")
-        print(f"  Distance: {distance}")
-        print(f"  Metadata: {metadata}")
+        print(f"Rank {(idx + 1):02d} | Dist.: {distance:.8f} | {song_id}")
+        # print(f"  Metadata: {metadata}")
 
 
 def search_song():
-    audio_path = "data/sample_sound/【シャニソン】シーズ「Forbidden Paradise」3DMV（4K対応）【アイドルマスター】 [RF26ayNu6gc].wav"
+    audio_path = "data/sample_sound/【シャニソン】シーズ「Monochromatic」3DMV（4K対応）【アイドルマスター】 [sx6CnJbn33k].wav"
     file_name = os.path.basename(audio_path)
 
     print("\n=== フルモードでの検索テスト ===")

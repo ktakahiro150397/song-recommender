@@ -4,4 +4,4 @@ version = "0.1.0"
 description = "ベクトルDBにデータ保存 / 曲調で検索する"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = ["chromadb>=0.4.0"]

@@ -4,22 +4,42 @@ ChromaDB を使ったベクトルDB操作モジュール
 
 import chromadb
 from pathlib import Path
+from typing import Literal
+
+
+# 距離関数の型
+DistanceFunction = Literal["l2", "cosine", "ip"]
 
 
 class SongVectorDB:
     """楽曲ベクトルを管理するクラス"""
 
-    def __init__(self, db_path: str = "./data/chroma"):
+    def __init__(
+        self,
+        db_path: str = "./data/chroma",
+        collection_name: str = "songs",
+        distance_fn: DistanceFunction = "cosine",
+    ):
         """
         Args:
             db_path: ChromaDBの永続化先パス
+            collection_name: コレクション名
+            distance_fn: 距離関数 ("l2", "cosine", "ip")
+                - l2: ユークリッド距離（位置の近さ）
+                - cosine: コサイン距離（向きの近さ、0〜2）
+                - ip: 内積（類似度、大きいほど近い）
         """
         # ディレクトリがなければ作成
         Path(db_path).mkdir(parents=True, exist_ok=True)
 
         self.client = chromadb.PersistentClient(path=db_path)
+        self.distance_fn = distance_fn
         self.collection = self.client.get_or_create_collection(
-            name="songs", metadata={"description": "楽曲の音声特徴量ベクトル"}
+            name=collection_name,
+            metadata={
+                "description": "楽曲の音声特徴量ベクトル",
+                "hnsw:space": distance_fn,
+            },
         )
 
     def add_song(
@@ -106,16 +126,12 @@ if __name__ == "__main__":
 
     print("=== ChromaDB 動作確認 ===\n")
 
-    # DB初期化
-    db = SongVectorDB(db_path="./data/chroma_test")
-    print(f"現在の登録数: {db.count()}")
-
     # ダミーベクトル生成（128次元）
     def make_dummy_vector(seed: int) -> list[float]:
         random.seed(seed)
         return [random.random() for _ in range(128)]
 
-    # テストデータ登録
+    # テストデータ
     test_songs = [
         ("song_001", "アップテンポな曲A", 100),
         ("song_002", "バラード曲B", 200),
@@ -124,34 +140,71 @@ if __name__ == "__main__":
         ("song_005", "バラード曲E", 201),  # song_002に近い
     ]
 
-    print("\n--- 楽曲登録 ---")
+    # ===== L2距離でテスト =====
+    print("=" * 50)
+    print("【L2距離（ユークリッド）】")
+    print("=" * 50)
+
+    db_l2 = SongVectorDB(
+        db_path="./data/chroma_test_l2",
+        collection_name="songs_l2",
+        distance_fn="l2",
+    )
+
     for song_id, title, seed in test_songs:
-        db.add_song(
+        db_l2.add_song(
             song_id=song_id,
             embedding=make_dummy_vector(seed),
-            metadata={"title": title, "seed": seed},
+            metadata={"title": title},
         )
-        print(f"  登録: {song_id} ({title})")
-
-    print(f"\n登録後の件数: {db.count()}")
-
-    # 類似検索テスト
-    print("\n--- 類似検索テスト ---")
-    print("クエリ: song_001 に近いベクトル（seed=100）")
 
     query_vector = make_dummy_vector(100)
-    results = db.search_similar(query_vector, n_results=3)
+    results = db_l2.search_similar(query_vector, n_results=3)
 
+    print("クエリ: song_001 に近いベクトル")
     print("結果:")
     for i, (id_, dist, meta) in enumerate(
         zip(results["ids"][0], results["distances"][0], results["metadatas"][0])
     ):
         print(f"  {i+1}. {id_} (距離: {dist:.4f}) - {meta['title']}")
 
-    # クリーンアップ（テスト用）
-    print("\n--- クリーンアップ ---")
+    # クリーンアップ
     for song_id, _, _ in test_songs:
-        db.delete_song(song_id)
-    print(f"削除後の件数: {db.count()}")
+        db_l2.delete_song(song_id)
+
+    # ===== コサイン距離でテスト =====
+    print("\n" + "=" * 50)
+    print("【コサイン距離】")
+    print("=" * 50)
+
+    db_cosine = SongVectorDB(
+        db_path="./data/chroma_test_cosine",
+        collection_name="songs_cosine",
+        distance_fn="cosine",
+    )
+
+    for song_id, title, seed in test_songs:
+        db_cosine.add_song(
+            song_id=song_id,
+            embedding=make_dummy_vector(seed),
+            metadata={"title": title},
+        )
+
+    results = db_cosine.search_similar(query_vector, n_results=3)
+
+    print("クエリ: song_001 に近いベクトル")
+    print("結果:")
+    for i, (id_, dist, meta) in enumerate(
+        zip(results["ids"][0], results["distances"][0], results["metadatas"][0])
+    ):
+        # コサイン距離を類似度に変換（0〜1、1が完全一致）
+        similarity = 1 - dist / 2
+        print(
+            f"  {i+1}. {id_} (距離: {dist:.4f}, 類似度: {similarity:.2%}) - {meta['title']}"
+        )
+
+    # クリーンアップ
+    for song_id, _, _ in test_songs:
+        db_cosine.delete_song(song_id)
 
     print("\n=== 完了 ===")

@@ -6,6 +6,11 @@ import numpy as np
 import librosa
 from pathlib import Path
 from dataclasses import dataclass
+from typing import Literal
+
+
+# 特徴量モードの型
+FeatureMode = Literal["minimal", "balanced", "full"]
 
 
 @dataclass
@@ -30,42 +35,93 @@ class AudioFeatures:
     rms_energy: float  # RMSエネルギー（音量）
     tempo: float  # テンポ (BPM)
 
-    def to_vector(self) -> list[float]:
-        """特徴量を1次元ベクトルに変換する（72次元）"""
-        return (
-            self.mfcc.tolist()  # 20
-            + self.mfcc_delta.tolist()  # 20
-            + self.chroma.tolist()  # 12
-            + self.tonnetz.tolist()  # 6
-            + self.spectral_contrast.tolist()  # 7
-            + [
-                self.spectral_centroid,  # 1
-                self.spectral_rolloff,  # 1
-                self.spectral_bandwidth,  # 1
-                self.spectral_flatness,  # 1
-                self.zero_crossing_rate,  # 1
-                self.rms_energy,  # 1
-                self.tempo / 200.0,  # 1 正規化（0-200 BPM → 0-1）
-            ]
-        )
+    def to_vector(self, mode: FeatureMode = "full") -> list[float]:
+        """
+        特徴量を1次元ベクトルに変換する
 
-    @property
-    def vector_dim(self) -> int:
-        """ベクトルの次元数"""
-        return len(self.to_vector())
+        Args:
+            mode: 特徴量モード
+                - "minimal": 最小構成（15次元）テンポ・明るさ重視
+                - "balanced": バランス型（30次元）汎用的
+                - "full": 全特徴量（72次元）細かい違いを見たい
+
+        Returns:
+            特徴量ベクトル
+        """
+        if mode == "minimal":
+            # ミニマル: テンポ、明るさ、音量、調性の基本
+            # Tempo(1) + Chroma(12) + Centroid(1) + RMS(1) = 15次元
+            return self.chroma.tolist() + [  # 12
+                self.spectral_centroid,  # 1
+                self.rms_energy,  # 1
+                self.tempo / 200.0,  # 1
+            ]
+
+        elif mode == "balanced":
+            # バランス: ミニマル + MFCC上位10個 + Contrast + Bandwidth
+            # MFCC(10) + Chroma(12) + Contrast(7) + Centroid(1) + Bandwidth(1) + RMS(1) + Tempo(1) = 33次元
+            return (
+                self.mfcc[:10].tolist()  # 10（上位10個）
+                + self.chroma.tolist()  # 12
+                + self.spectral_contrast.tolist()  # 7
+                + [
+                    self.spectral_centroid,  # 1
+                    self.spectral_bandwidth,  # 1
+                    self.rms_energy,  # 1
+                    self.tempo / 200.0,  # 1
+                ]
+            )
+
+        else:  # full
+            # フル: 全特徴量（72次元）
+            return (
+                self.mfcc.tolist()  # 20
+                + self.mfcc_delta.tolist()  # 20
+                + self.chroma.tolist()  # 12
+                + self.tonnetz.tolist()  # 6
+                + self.spectral_contrast.tolist()  # 7
+                + [
+                    self.spectral_centroid,  # 1
+                    self.spectral_rolloff,  # 1
+                    self.spectral_bandwidth,  # 1
+                    self.spectral_flatness,  # 1
+                    self.zero_crossing_rate,  # 1
+                    self.rms_energy,  # 1
+                    self.tempo / 200.0,  # 1
+                ]
+            )
+
+    def get_vector_dim(self, mode: FeatureMode = "full") -> int:
+        """指定モードでのベクトル次元数を返す"""
+        return len(self.to_vector(mode))
+
+
+# 各モードの次元数（参照用）
+FEATURE_DIMENSIONS = {
+    "minimal": 15,
+    "balanced": 33,
+    "full": 72,
+}
 
 
 class FeatureExtractor:
     """音声ファイルから特徴量を抽出するクラス"""
 
-    def __init__(self, sr: int = 22050, duration: float | None = None):
+    def __init__(
+        self,
+        sr: int = 22050,
+        duration: float | None = None,
+        mode: FeatureMode = "balanced",
+    ):
         """
         Args:
             sr: サンプリングレート
             duration: 読み込む秒数（Noneで全体）
+            mode: 特徴量モード ("minimal", "balanced", "full")
         """
         self.sr = sr
         self.duration = duration
+        self.mode = mode
 
     def extract(self, audio_path: str | Path) -> AudioFeatures:
         """
@@ -152,18 +208,21 @@ class FeatureExtractor:
             tempo=tempo_value,
         )
 
-    def extract_to_vector(self, audio_path: str | Path) -> list[float]:
+    def extract_to_vector(
+        self, audio_path: str | Path, mode: FeatureMode | None = None
+    ) -> list[float]:
         """
         音声ファイルから特徴量を抽出し、ベクトルとして返す
 
         Args:
             audio_path: 音声ファイルのパス
+            mode: 特徴量モード（Noneの場合はコンストラクタで指定したモード）
 
         Returns:
             特徴量ベクトル
         """
         features = self.extract(audio_path)
-        return features.to_vector()
+        return features.to_vector(mode or self.mode)
 
 
 # ===== 動作確認用 =====
@@ -174,15 +233,19 @@ if __name__ == "__main__":
 
     # コマンドライン引数から音声ファイルパスを取得
     if len(sys.argv) < 2:
-        print("使い方: python feature_extractor.py <音声ファイルパス>")
-        print("例: python feature_extractor.py ./sample.mp3")
+        print("使い方: python feature_extractor.py <音声ファイルパス> [モード]")
+        print("モード: minimal, balanced, full（デフォルト: balanced）")
+        print("例: python feature_extractor.py ./sample.mp3 balanced")
         sys.exit(1)
 
     audio_path = sys.argv[1]
-    print(f"対象ファイル: {audio_path}\n")
+    mode: FeatureMode = sys.argv[2] if len(sys.argv) > 2 else "balanced"  # type: ignore
+
+    print(f"対象ファイル: {audio_path}")
+    print(f"モード: {mode}（{FEATURE_DIMENSIONS.get(mode, '?')}次元）\n")
 
     # 特徴量抽出
-    extractor = FeatureExtractor(duration=30)  # 最初の30秒のみ
+    extractor = FeatureExtractor(duration=30, mode=mode)
     features = extractor.extract(audio_path)
 
     # 結果表示
@@ -200,9 +263,16 @@ if __name__ == "__main__":
     print(f"RMS Energy: {features.rms_energy:.4f}")
     print(f"Tempo (BPM): {features.tempo:.1f}")
 
-    print(f"\n--- ベクトル ---")
-    vector = features.to_vector()
+    # 各モードのベクトル比較
+    print(f"\n--- 各モードのベクトル次元数 ---")
+    for m in ["minimal", "balanced", "full"]:
+        vec = features.to_vector(m)  # type: ignore
+        marker = "◀" if m == mode else ""
+        print(f"  {m}: {len(vec)}次元 {marker}")
+
+    print(f"\n--- 選択モード ({mode}) のベクトル ---")
+    vector = features.to_vector(mode)
     print(f"次元数: {len(vector)}")
-    print(f"ベクトル: {vector[:10]}... (先頭10つ)")
+    print(f"ベクトル: {vector[:10]}... (先頭10個)")
 
     print("\n=== 完了 ===")

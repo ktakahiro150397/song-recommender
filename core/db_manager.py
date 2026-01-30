@@ -75,21 +75,34 @@ class SongVectorDB:
         )
         return results
 
-    def get_song(self, song_id: str) -> dict | None:
+    def get_song(self, song_id: str, include_embedding: bool = True) -> dict | None:
         """
         IDで楽曲を取得する
 
         Args:
             song_id: 楽曲ID
+            include_embedding: embeddingを含めるか（デフォルトTrue）
 
         Returns:
             楽曲情報（見つからない場合はNone）
         """
-        result = self.collection.get(ids=[song_id])
+        include = ["metadatas"]
+        if include_embedding:
+            include.append("embeddings")
+
+        result = self.collection.get(ids=[song_id], include=include)  # type: ignore
         if result["ids"]:
+            # embeddingsの存在チェック（配列なのでNoneかどうかで判定）
+            embeddings = result.get("embeddings")
+            has_embeddings = embeddings is not None and len(embeddings) > 0
+
             return {
                 "id": result["ids"][0],
-                "embedding": result["embeddings"][0] if result["embeddings"] else None,
+                "embedding": (
+                    result["embeddings"][0]
+                    if include_embedding and has_embeddings
+                    else None
+                ),
                 "metadata": result["metadatas"][0] if result["metadatas"] else None,
             }
         return None

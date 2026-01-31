@@ -59,13 +59,16 @@
 
 ```
 song-recommender/
-├── main.py                   # エントリポイント
+├── main.py                        # 楽曲登録・連鎖検索の実行
+├── create_playlist_from_chain.py  # 連鎖検索→YouTube Musicプレイリスト作成
+├── test_ytmusic.py                # YouTube Music API テストスクリプト
+├── browser.json                   # YouTube Music認証ファイル
 ├── core/
-│   ├── feature_extractor.py  # 音声特徴量抽出
-│   └── db_manager.py         # ベクトルDB操作
+│   ├── feature_extractor.py       # 音声特徴量抽出
+│   ├── db_manager.py              # ベクトルDB操作
+│   └── ytmusic_manager.py         # YouTube Music API操作
 ├── data/
-│   ├── sample_sound/         # 音声ファイル置き場
-│   └── chroma_db_*/          # ChromaDB永続化先
+│   └── chroma_db_*/               # ChromaDB永続化先
 ├── pyproject.toml
 └── README.md
 ```
@@ -78,7 +81,73 @@ song-recommender/
 uv sync
 ```
 
-### 楽曲の登録と検索
+### 楽曲の登録
+
+```bash
+uv run python main.py
+```
+
+`main.py` の `sound_dirs` に指定したディレクトリ内の音声ファイルをベクトルDBに登録します。
+
+### 類似楽曲の連鎖検索
+
+`main.py` 内の `chain_search()` 関数で、指定した曲から類似曲を連鎖的に辿ります。
+
+```python
+# main.py の末尾で実行
+start_file = "フェスタ・イルミネーション [0Oj57StVGKk].wav"
+chain_search(
+    start_filename=start_file,
+    dbs=[db_full, db_balance, db_minimal],
+    n_songs=60,
+)
+```
+
+### YouTube Music プレイリスト作成
+
+連鎖検索の結果をYouTube Musicのプレイリストとして自動作成します。
+
+```bash
+uv run create_playlist_from_chain.py
+```
+
+#### 設定（定数を編集）
+
+| 定数 | 説明 | 例 |
+|------|------|-----|
+| `PLAYLIST_NAME` | プレイリスト名 | `"曲調リコメンドプレイリスト"` |
+| `START_SONG` | 開始曲のファイル名 | `"曲名 [videoId].wav"` |
+| `N_SONGS` | プレイリストに追加する曲数 | `30` |
+| `PRIVACY` | 公開設定 | `"PRIVATE"` / `"PUBLIC"` / `"UNLISTED"` |
+
+#### 処理フロー
+
+1. ベクトルDBから開始曲の類似曲を連鎖的に探索
+2. ファイル名から曲名を抽出して検索クエリを生成
+3. YouTube Music APIで楽曲を検索
+4. プレイリストを作成（既存があれば削除して再作成）
+5. Descriptionに処理日と開始曲を記載
+
+### YouTube Music API テスト
+
+```bash
+# 接続テスト
+uv run test_ytmusic.py --test
+
+# プレイリスト一覧
+uv run test_ytmusic.py --list
+
+# 検索テスト
+uv run test_ytmusic.py --search
+
+# プレイリスト作成テスト
+uv run test_ytmusic.py --create "テストプレイリスト"
+
+# プレイリスト削除
+uv run test_ytmusic.py --delete "PLAYLIST_ID"
+```
+
+### Pythonからの利用
 
 ```python
 from core.db_manager import SongVectorDB
@@ -97,13 +166,8 @@ song = db.get_song("song.wav")
 results = db.search_similar(query_embedding=song["embedding"], n_results=5)
 ```
 
-### 実行
-
-```bash
-uv run python main.py
-```
-
 ## 開発フェーズ
 
 - [x] **Phase 1**: librosa + ChromaDB で基本実装（MVP）
-- [ ] **Phase 2**: 精度向上が必要な場合、CLAP / OpenL3 等の深層学習モデルを導入
+- [x] **Phase 2**: YouTube Music連携（プレイリスト自動作成）
+- [ ] **Phase 3**: 精度向上が必要な場合、CLAP / OpenL3 等の深層学習モデルを導入

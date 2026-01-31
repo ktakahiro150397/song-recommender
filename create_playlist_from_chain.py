@@ -2,9 +2,12 @@
 連鎖検索結果からYouTube Musicプレイリストを作成するスクリプト
 
 使い方:
-    uv run create_playlist_from_chain.py
+    uv run create_playlist_from_chain.py "検索キーワード"
+    uv run create_playlist_from_chain.py "検索キーワード" --count 30
+    uv run create_playlist_from_chain.py "検索キーワード" --name "プレイリスト名"
 """
 
+import argparse
 import re
 from datetime import datetime
 from colorama import Fore, Style, init
@@ -15,15 +18,9 @@ from core.ytmusic_manager import YTMusicManager
 # Windows用初期化
 init()
 
-# ========== 定数設定 ==========
-# プレイリスト名
-PLAYLIST_NAME = "曲調リコメンドプレイリスト"
-
-# 開始曲のファイル名
-START_SONG = "【シャニソン】黛 冬優子「SOS」MV 【アイドルマスター】 [zny-LI3hUPM].wav"
-
-# プレイリストに追加する曲数
-N_SONGS = 30
+# ========== デフォルト設定 ==========
+DEFAULT_PLAYLIST_NAME = "曲調リコメンドプレイリスト"
+DEFAULT_N_SONGS = 30
 
 # 使用するDB
 DB_PATHS = [
@@ -37,6 +34,58 @@ BROWSER_FILE = "browser.json"
 PRIVACY = "PRIVATE"  # PRIVATE, PUBLIC, UNLISTED
 
 # ========== ユーティリティ関数 ==========
+
+
+def find_song_by_keyword(db: SongVectorDB, keyword: str, limit: int = 10) -> list[str]:
+    """
+    キーワードで部分一致検索して曲を探す
+    """
+    all_songs = db.list_all(limit=10000)
+    matches = []
+
+    keyword_lower = keyword.lower()
+    for song_id in all_songs["ids"]:
+        if keyword_lower in song_id.lower():
+            matches.append(song_id)
+            if len(matches) >= limit:
+                break
+
+    return matches
+
+
+def select_song_interactive(db: SongVectorDB, keyword: str) -> str | None:
+    """
+    キーワードで曲を検索し、複数ヒットした場合は選択させる
+    """
+    matches = find_song_by_keyword(db, keyword, limit=20)
+
+    if not matches:
+        print(f"❌ '{keyword}' に一致する曲が見つかりません。")
+        return None
+
+    if len(matches) == 1:
+        print(f"✅ 1件ヒット: {matches[0]}")
+        return matches[0]
+
+    # 複数ヒット時は選択
+    print(f"\n🔍 '{keyword}' で {len(matches)} 件ヒット:")
+    for i, song_id in enumerate(matches, 1):
+        print(f"  {i:2d}. {song_id}")
+
+    print()
+    try:
+        choice = input("番号を入力 (Enterで1番目を選択, qでキャンセル): ").strip()
+        if choice.lower() == "q":
+            return None
+        if choice == "":
+            return matches[0]
+        idx = int(choice) - 1
+        if 0 <= idx < len(matches):
+            return matches[idx]
+        print("❌ 無効な番号です。")
+        return None
+    except (ValueError, KeyboardInterrupt):
+        return None
 
 
 def filename_to_query(filename: str) -> str:
@@ -158,13 +207,18 @@ def chain_search_to_list(
 # ========== メイン処理 ==========
 
 
-def main():
+def run_playlist_creation(
+    start_song: str,
+    playlist_name: str,
+    n_songs: int,
+):
+    """プレイリスト作成の実行"""
     print("\n" + "=" * 60)
     print("🎵 連鎖検索 → YouTube Music プレイリスト作成")
     print("=" * 60)
-    print(f"   プレイリスト名: {PLAYLIST_NAME}")
-    print(f"   開始曲: {START_SONG}")
-    print(f"   曲数: {N_SONGS}")
+    print(f"   プレイリスト名: {playlist_name}")
+    print(f"   開始曲: {start_song}")
+    print(f"   曲数: {n_songs}")
 
     # 1. DBを初期化
     print("\n📂 DBを読み込み中...")
@@ -173,9 +227,9 @@ def main():
 
     # 2. 連鎖検索を実行
     chain_results = chain_search_to_list(
-        start_filename=START_SONG,
+        start_filename=start_song,
         dbs=dbs,
-        n_songs=N_SONGS,
+        n_songs=n_songs,
     )
 
     if not chain_results:
@@ -197,13 +251,13 @@ def main():
 
     # 5. Description を作成
     today = datetime.now().strftime("%Y-%m-%d")
-    start_query = filename_to_query(START_SONG)
+    start_query = filename_to_query(start_song)
     description = f"処理日: {today}\n開始曲: {start_query}"
 
     # 6. プレイリストを作成
     print("\n🎵 プレイリストを作成中...")
     result = ytm.create_or_replace_playlist(
-        playlist_name=PLAYLIST_NAME,
+        playlist_name=playlist_name,
         song_queries=song_queries,
         description=description,
         privacy=PRIVACY,
@@ -214,7 +268,7 @@ def main():
     print("\n" + "=" * 60)
     print("📊 結果サマリー")
     print("=" * 60)
-    print(f"   プレイリスト名: {PLAYLIST_NAME}")
+    print(f"   プレイリスト名: {playlist_name}")
     print(f"   Playlist ID: {result['playlist_id']}")
     print(f"   登録成功: {len(result['found_songs'])} / {len(song_queries)} 曲")
     print(f"   見つからず: {len(result['not_found'])} 曲")
@@ -230,6 +284,58 @@ def main():
             print(f"      - {q}")
 
     print("\n✅ 完了！")
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="連鎖検索結果からYouTube Musicプレイリストを作成"
+    )
+    parser.add_argument(
+        "keyword",
+        nargs="?",
+        help="開始曲の検索キーワード（部分一致）",
+    )
+    parser.add_argument(
+        "--count",
+        "-n",
+        type=int,
+        default=DEFAULT_N_SONGS,
+        help=f"プレイリストに追加する曲数（デフォルト: {DEFAULT_N_SONGS}）",
+    )
+    parser.add_argument(
+        "--name",
+        type=str,
+        default=DEFAULT_PLAYLIST_NAME,
+        help=f"プレイリスト名（デフォルト: {DEFAULT_PLAYLIST_NAME}）",
+    )
+
+    args = parser.parse_args()
+
+    # キーワードが指定されていない場合はヘルプ表示
+    if not args.keyword:
+        parser.print_help()
+        print("\n" + "=" * 50)
+        print("📝 使用例")
+        print("=" * 50)
+        print('  uv run create_playlist_from_chain.py "フェスタ"')
+        print('  uv run create_playlist_from_chain.py "SOS" --count 20')
+        print('  uv run create_playlist_from_chain.py "SOS" --name "My Playlist"')
+        return
+
+    # DBを初期化（曲検索用）
+    db = SongVectorDB(db_path=DB_PATHS[0], distance_fn="cosine")
+
+    # 開始曲を検索
+    start_song = select_song_interactive(db, args.keyword)
+    if not start_song:
+        return
+
+    # プレイリスト作成を実行
+    run_playlist_creation(
+        start_song=start_song,
+        playlist_name=args.name,
+        n_songs=args.count,
+    )
 
 
 if __name__ == "__main__":

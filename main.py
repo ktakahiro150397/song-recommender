@@ -1,60 +1,91 @@
-# ベクトルDB初期化
+"""
+連鎖検索スクリプト
+
+使い方:
+    uv run main.py "検索キーワード"
+    uv run main.py "検索キーワード" --count 30
+    uv run main.py --list "キーワード"  # 部分一致で曲を検索
+"""
+
+import argparse
 from core.db_manager import SongVectorDB
-from core.feature_extractor import FeatureExtractor
 import os
 from colorama import Fore, Style, init
 
 # Windows用初期化
 init()
 
+# ========== DB初期化 ==========
 db_minimal = SongVectorDB(db_path="data/chroma_db_cos_minimal", distance_fn="cosine")
 db_balance = SongVectorDB(db_path="data/chroma_db_cos_balance", distance_fn="cosine")
 db_full = SongVectorDB(db_path="data/chroma_db_cos_full", distance_fn="cosine")
-extractor_minimal = FeatureExtractor(duration=90, mode="minimal")
-extractor_balance = FeatureExtractor(duration=90, mode="balanced")
-extractor_full = FeatureExtractor(duration=90, mode="full")
-
-sound_dirs = [
-    "data/scsp_mv",
-    "data/gakumas_mv",
-    "data/utada",
-    "F:/million",
-]
 
 
-def add_songs(
-    db: SongVectorDB, extractor: FeatureExtractor, sound_dir: str, filename: str
-):
-    # print(f"Checking {filename}...")
+def find_song_by_keyword(db: SongVectorDB, keyword: str, limit: int = 10) -> list[str]:
+    """
+    キーワードで部分一致検索して曲を探す
 
-    exist_song = db.get_song(song_id=filename)
-    if exist_song is not None:
-        # print(f"Skipping {filename}, already in DB.")
-        return
+    Args:
+        db: ベクトルDB
+        keyword: 検索キーワード（部分一致）
+        limit: 最大件数
 
-    if filename.endswith(".wav") or filename.endswith(".mp3"):
-        file_path = os.path.join(sound_dir, filename)
-        print(f"Processing {file_path}...")
-        embedding = extractor.extract_to_vector(file_path)
-        metadata = {"filename": filename, "source_dir": sound_dir}
-        db.add_song(song_id=filename, embedding=embedding, metadata=metadata)
+    Returns:
+        マッチした曲IDのリスト
+    """
+    all_songs = db.list_all(limit=10000)
+    matches = []
+
+    keyword_lower = keyword.lower()
+    for song_id in all_songs["ids"]:
+        if keyword_lower in song_id.lower():
+            matches.append(song_id)
+            if len(matches) >= limit:
+                break
+
+    return matches
 
 
-def main():
-    # ディレクトリ配下の音声ファイルを登録
+def select_song_interactive(db: SongVectorDB, keyword: str) -> str | None:
+    """
+    キーワードで曲を検索し、複数ヒットした場合は選択させる
 
-    for sound_dir in sound_dirs:
-        if not os.path.exists(sound_dir):
-            print(f"Skipping {sound_dir}, directory not found.")
-            continue
+    Args:
+        db: ベクトルDB
+        keyword: 検索キーワード
 
-        print(f"\n--- Processing directory: {sound_dir} ---")
-        for filename in os.listdir(sound_dir):
-            add_songs(db_minimal, extractor_minimal, sound_dir, filename)
-            add_songs(db_balance, extractor_balance, sound_dir, filename)
-            add_songs(db_full, extractor_full, sound_dir, filename)
+    Returns:
+        選択された曲ID（キャンセル時はNone）
+    """
+    matches = find_song_by_keyword(db, keyword, limit=20)
 
-    print(f"\nTotal songs in DB: {db_full.count()}")
+    if not matches:
+        print(f"❌ '{keyword}' に一致する曲が見つかりません。")
+        return None
+
+    if len(matches) == 1:
+        print(f"✅ 1件ヒット: {matches[0]}")
+        return matches[0]
+
+    # 複数ヒット時は選択
+    print(f"\n🔍 '{keyword}' で {len(matches)} 件ヒット:")
+    for i, song_id in enumerate(matches, 1):
+        print(f"  {i:2d}. {song_id}")
+
+    print()
+    try:
+        choice = input("番号を入力 (Enterで1番目を選択, qでキャンセル): ").strip()
+        if choice.lower() == "q":
+            return None
+        if choice == "":
+            return matches[0]
+        idx = int(choice) - 1
+        if 0 <= idx < len(matches):
+            return matches[idx]
+        print("❌ 無効な番号です。")
+        return None
+    except (ValueError, KeyboardInterrupt):
+        return None
 
 
 def get_distance_color(distance: float) -> str:
@@ -222,14 +253,72 @@ def chain_search(
     print(f"{'='*60}")
 
 
+def main():
+    parser = argparse.ArgumentParser(
+        description="連鎖検索スクリプト - 類似曲を連鎖的に辿る"
+    )
+    parser.add_argument(
+        "keyword",
+        nargs="?",
+        help="開始曲の検索キーワード（部分一致）",
+    )
+    parser.add_argument(
+        "--count",
+        "-n",
+        type=int,
+        default=60,
+        help="表示する曲数（デフォルト: 60）",
+    )
+    parser.add_argument(
+        "--list",
+        "-l",
+        type=str,
+        metavar="KEYWORD",
+        help="キーワードで曲を検索して一覧表示",
+    )
+
+    args = parser.parse_args()
+
+    # --list モード: 曲を検索して一覧表示（メタデータ付き）
+    if args.list:
+        matches = find_song_by_keyword(db_full, args.list, limit=50)
+        if not matches:
+            print(f"❌ '{args.list}' に一致する曲が見つかりません。")
+            return
+        print(f"\n🔍 '{args.list}' で {len(matches)} 件ヒット:\n")
+        for i, song_id in enumerate(matches, 1):
+            song = db_full.get_song(song_id=song_id, include_embedding=False)
+            metadata = song.get("metadata", {}) if song else {}
+            print(f"  {i:2d}. {song_id}")
+            if metadata:
+                for key, value in metadata.items():
+                    print(f"      {key}: {value}")
+            print()
+        return
+
+    # キーワードが指定されていない場合はヘルプ表示
+    if not args.keyword:
+        parser.print_help()
+        print("\n" + "=" * 50)
+        print("📝 使用例")
+        print("=" * 50)
+        print('  uv run main.py "フェスタ"           # 部分一致で開始曲を検索')
+        print('  uv run main.py "SOS" --count 30    # 30曲まで表示')
+        print('  uv run main.py --list "アイマス"    # 曲を検索して一覧表示')
+        return
+
+    # 開始曲を検索
+    start_song = select_song_interactive(db_full, args.keyword)
+    if not start_song:
+        return
+
+    # 連鎖検索を実行
+    chain_search(
+        start_filename=start_song,
+        dbs=[db_full, db_balance, db_minimal],
+        n_songs=args.count,
+    )
+
+
 if __name__ == "__main__":
     main()
-    # search_song()
-
-    # 連鎖検索の例（複数DBから最も近いものを選択）
-    start_file = "フェスタ・イルミネーション [0Oj57StVGKk].wav"
-    chain_search(
-        start_filename=start_file,
-        dbs=[db_full, db_balance, db_minimal],
-        n_songs=60,
-    )

@@ -1,0 +1,134 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Register Songs to DB",
+            "type": "shell",
+            "command": "uv",
+            "args": [
+                "run",
+                "register_songs.py",
+                "--parallel",
+                "${input:parallelMode}"
+            ],
+            "group": "build",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "new"
+            }
+        },
+        {
+            "label": "Create Playlist from Chain Search",
+            "type": "shell",
+            "command": "uv",
+            "args": [
+                "run",
+                "create_playlist_from_chain.py",
+                "${input:playlistSearchKeyword}",
+                "--count",
+                "${input:playlistSongCount}",
+                "--name",
+                "${input:playlistName}"
+            ],
+            "group": "build",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "new"
+            }
+        },
+        {
+            "label": "Run Chain Search",
+            "type": "shell",
+            "command": "uv",
+            "args": [
+                "run",
+                "main.py",
+                "${input:chainSearchKeyword}",
+                "--count",
+                "${input:chainSearchCount}"
+            ],
+            "group": "build",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "new"
+            }
+        },
+        {
+            "label": "List Songs by Keyword",
+            "type": "shell",
+            "command": "uv",
+            "args": [
+                "run",
+                "main.py",
+                "--list",
+                "${input:listSearchKeyword}"
+            ],
+            "group": "build",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "new"
+            }
+        },
+        {
+            "label": "Test YouTube Music Connection",
+            "type": "shell",
+            "command": "uv",
+            "args": ["run", "test_ytmusic.py", "--test"],
+            "group": "test",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "new"
+            }
+        }
+    ],
+    "inputs": [
+        {
+            "id": "chainSearchKeyword",
+            "type": "promptString",
+            "description": "開始曲の検索キーワード（部分一致）",
+            "default": ""
+        },
+        {
+            "id": "chainSearchCount",
+            "type": "promptString",
+            "description": "表示する曲数",
+            "default": "60"
+        },
+        {
+            "id": "listSearchKeyword",
+            "type": "promptString",
+            "description": "検索キーワード（部分一致）",
+            "default": ""
+        },
+        {
+            "id": "playlistSearchKeyword",
+            "type": "promptString",
+            "description": "開始曲の検索キーワード（部分一致）",
+            "default": ""
+        },
+        {
+            "id": "playlistSongCount",
+            "type": "promptString",
+            "description": "プレイリストに追加する曲数",
+            "default": "30"
+        },
+        {
+            "id": "playlistName",
+            "type": "promptString",
+            "description": "プレイリスト名",
+            "default": "曲調リコメンドプレイリスト"
+        },
+        {
+            "id": "parallelMode",
+            "type": "pickString",
+            "description": "並列処理モード",
+            "options": ["none", "thread", "process"],
+            "default": "none"
+        }
+    ]
+}

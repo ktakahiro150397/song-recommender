@@ -158,6 +158,20 @@ def test_create_playlist(playlist_name: str):
             print(f"  - {q}")
 
 
+def test_delete_playlist(playlist_id: str):
+    """プレイリスト削除テスト"""
+    print("=" * 50)
+    print(f"🗑️ プレイリスト削除テスト: {playlist_id}")
+    print("=" * 50)
+
+    ytm = YTMusicManager(
+        browser_file=BROWSER_FILE,
+    )
+
+    ytm.delete_playlist(playlist_id)
+    print(f"✅ プレイリストを削除しました: {playlist_id}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="YouTube Music API テストスクリプト")
     parser.add_argument("--test", action="store_true", help="接続テストを実行")
@@ -168,6 +182,12 @@ def main():
         type=str,
         metavar="NAME",
         help="テストプレイリストを作成",
+    )
+    parser.add_argument(
+        "--delete",
+        type=str,
+        metavar="PLAYLIST_ID",
+        help="指定したプレイリストを削除",
     )
 
     args = parser.parse_args()
@@ -192,6 +212,12 @@ def main():
         if not test_connection():
             return
         test_create_playlist(args.create)
+        return
+
+    if args.delete:
+        if not test_connection():
+            return
+        test_delete_playlist(args.delete)
         return
 
     # 引数なしの場合はヘルプを表示

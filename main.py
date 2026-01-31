@@ -227,7 +227,7 @@ if __name__ == "__main__":
     # search_song()
 
     # 連鎖検索の例（複数DBから最も近いものを選択）
-    start_file = "宇多田ヒカル - Be My Last [NFWQpe3P1_g].wav"
+    start_file = "フェスタ・イルミネーション [0Oj57StVGKk].wav"
     chain_search(
         start_filename=start_file,
         dbs=[db_full, db_balance, db_minimal],

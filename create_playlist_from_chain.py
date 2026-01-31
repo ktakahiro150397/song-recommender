@@ -102,14 +102,14 @@ def filename_to_query(filename: str, source_dir: str | None = None) -> str:
     else:
         # マッチしない場合は拡張子だけ除去
         query = re.sub(r"\.(wav|mp3)$", "", filename).strip()
-    
+
     # source_dirからフォルダ名を抽出して追加
     if source_dir:
         # "data/xxx" or "xxx" からフォルダ名を取得
         folder_name = source_dir.split("/")[-1]
         if folder_name and folder_name != "data":
             query = f"{query} {folder_name}"
-    
+
     return query
 
 

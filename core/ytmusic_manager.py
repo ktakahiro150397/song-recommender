@@ -66,15 +66,15 @@ class YTMusicManager:
                 return p["playlistId"]
         return None
 
-    def search_video_id(
+    def _search_single(
         self, query: str, sleep_sec: float = 0.5
     ) -> dict[str, str] | None:
         """
-        クエリからvideoIdを検索
+        単一クエリでvideoIdを検索（内部用）
 
         Args:
-            query: 検索クエリ（曲名、アーティスト名など）
-            sleep_sec: API呼び出し後のスリープ秒数（レート制限対策）
+            query: 検索クエリ
+            sleep_sec: API呼び出し後のスリープ秒数
 
         Returns:
             {"videoId": ..., "title": ..., "artist": ...} または None
@@ -96,6 +96,39 @@ class YTMusicManager:
                 }
         except Exception as e:
             print(f"Search error for '{query}': {e}")
+
+        return None
+
+    def search_video_id(
+        self, query: str, sleep_sec: float = 0.5
+    ) -> dict[str, str] | None:
+        """
+        クエリからvideoIdを検索（フォールバック付き）
+
+        サフィックス（スペース区切りの最後の単語）付きで見つからない場合、
+        サフィックスを除いて再検索する。
+
+        Args:
+            query: 検索クエリ（曲名、アーティスト名など）
+            sleep_sec: API呼び出し後のスリープ秒数（レート制限対策）
+
+        Returns:
+            {"videoId": ..., "title": ..., "artist": ...} または None
+        """
+        # まず元のクエリで検索
+        result = self._search_single(query, sleep_sec)
+        if result:
+            return result
+
+        # 見つからない場合、サフィックス（最後の単語）を除いて再検索
+        parts = query.rsplit(" ", 1)
+        if len(parts) > 1:
+            base_query = parts[0].strip()
+            if base_query:
+                print(f"   🔄 Retry without suffix: {base_query}")
+                result = self._search_single(base_query, sleep_sec)
+                if result:
+                    return result
 
         return None
 

@@ -88,17 +88,29 @@ def select_song_interactive(db: SongVectorDB, keyword: str) -> str | None:
         return None
 
 
-def filename_to_query(filename: str) -> str:
+def filename_to_query(filename: str, source_dir: str | None = None) -> str:
     """
     ファイル名から検索クエリを抽出
     例: "フェスタ・イルミネーション [0Oj57StVGKk].wav" → "フェスタ・イルミネーション"
+    source_dirが指定されていれば、フォルダ名を検索クエリに追加
+    例: source_dir="data/gakumas_mv" → "フェスタ・イルミネーション gakumas_mv"
     """
     # [videoId] と拡張子を除去
     match = re.match(r"(.+?)\s*\[.*\]\.(wav|mp3)", filename)
     if match:
-        return match.group(1).strip()
-    # マッチしない場合は拡張子だけ除去
-    return re.sub(r"\.(wav|mp3)$", "", filename).strip()
+        query = match.group(1).strip()
+    else:
+        # マッチしない場合は拡張子だけ除去
+        query = re.sub(r"\.(wav|mp3)$", "", filename).strip()
+    
+    # source_dirからフォルダ名を抽出して追加
+    if source_dir:
+        # "data/xxx" or "xxx" からフォルダ名を取得
+        folder_name = source_dir.split("/")[-1]
+        if folder_name and folder_name != "data":
+            query = f"{query} {folder_name}"
+    
+    return query
 
 
 def get_distance_color(distance: float) -> str:
@@ -121,7 +133,7 @@ def chain_search_to_list(
     start_filename: str,
     dbs: list[SongVectorDB],
     n_songs: int = 30,
-) -> list[tuple[str, float]]:
+) -> list[tuple[str, float, dict]]:
     """
     1曲から始めて類似曲を連鎖的に辿り、結果をリストで返す
 
@@ -131,7 +143,7 @@ def chain_search_to_list(
         n_songs: 取得する曲数
 
     Returns:
-        [(song_id, distance), ...] のリスト（開始曲を含む）
+        [(song_id, distance, metadata), ...] のリスト（開始曲を含む）
     """
     visited: set[str] = set()
     results: list[tuple[str, float]] = []
@@ -149,13 +161,13 @@ def chain_search_to_list(
         return []
 
     # 開始曲を追加
-    start_metadata = exist_song.get("metadata", {})
+    start_metadata = exist_song.get("metadata", {}) or {}
     source_dir = start_metadata.get("source_dir", "unknown")
     print(
         f"\n{Fore.CYAN}Start | {source_dir:<15s} | {current_song_id}{Style.RESET_ALL}"
     )
     visited.add(current_song_id)
-    results.append((current_song_id, 0.0))
+    results.append((current_song_id, 0.0, start_metadata))
 
     for i in range(n_songs - 1):  # 開始曲を含めてn_songs曲
         best_song = None
@@ -194,7 +206,7 @@ def chain_search_to_list(
         )
 
         visited.add(best_song)
-        results.append((best_song, best_distance))
+        results.append((best_song, best_distance, best_metadata))
         current_song_id = best_song
 
     print(f"\n{'='*60}")
@@ -239,8 +251,9 @@ def run_playlist_creation(
     # 3. ファイル名から検索クエリを生成
     print("\n🔍 検索クエリを生成中...")
     song_queries = []
-    for song_id, distance in chain_results:
-        query = filename_to_query(song_id)
+    for song_id, distance, metadata in chain_results:
+        source_dir = metadata.get("source_dir") if metadata else None
+        query = filename_to_query(song_id, source_dir=source_dir)
         song_queries.append(query)
         print(f"   {song_id}")
         print(f"      → {query}")

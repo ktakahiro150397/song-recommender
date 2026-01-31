@@ -49,6 +49,54 @@ def extract_youtube_id(filename: str) -> str | None:
     return match.group(1) if match else None
 
 
+def extract_song_title(filename: str) -> str:
+    """
+    ファイル名から曲名を抽出する
+
+    優先順位:
+    1. 「」（カギ括弧）で囲われている → 最初の「」の中身
+    2. 【】（すみカッコ）がある場合 → 【】で囲われていない部分を抽出
+    3. 上記に該当しない → [videoId]と拡張子、()を除去した文字列
+
+    例:
+        '初星学園 「Star-mine」Official Music Video [xxx].wav' → 'Star-mine'
+        '【学園アイドルマスター MV】光景【学マス】 [xxx].wav' → '光景'
+        '【シャニソン】白瀬 咲耶「千夜アリア」3DMV [xxx].wav' → '千夜アリア'
+        'traveling [abc123XYZ].wav' → 'traveling'
+    """
+    # 1. 「」（カギ括弧）を優先チェック
+    kakko_match = re.search(r"「(.+?)」", filename)
+    if kakko_match:
+        return kakko_match.group(1).strip()
+
+    # 2. 【】（すみカッコ）がある場合、その外側の文字列を抽出
+    if "【" in filename and "】" in filename:
+        # [videoId] と拡張子を先に除去
+        temp = re.sub(r"\s*\[[a-zA-Z0-9_-]{11}\]\.(wav|mp3)$", "", filename)
+        # 【...】を除去
+        temp = re.sub(r"【[^】]*】", "", temp)
+        # ()（丸括弧）と（）（全角丸括弧）を除去
+        temp = re.sub(r"[\(（][^\)）]*[\)）]", "", temp)
+        # 余分な空白を整理
+        temp = re.sub(r"\s+", " ", temp).strip()
+        if temp:
+            return temp
+
+    # 3. 従来のロジック: [videoId] と拡張子を除去
+    # [videoId].ext パターンを除去
+    temp = re.sub(r"\s*\[[a-zA-Z0-9_-]{11}\]\.(wav|mp3)$", "", filename)
+    # [videoId] のみ（拡張子なし）のパターンも除去
+    temp = re.sub(r"\s*\[[a-zA-Z0-9_-]{11}\]$", "", temp)
+    # 拡張子のみの場合も除去
+    temp = re.sub(r"\.(wav|mp3)$", "", temp)
+    # ()（丸括弧）と（）（全角丸括弧）を除去
+    temp = re.sub(r"[\(（][^\)）]*[\)）]", "", temp)
+    # 余分な空白を整理
+    temp = re.sub(r"\s+", " ", temp).strip()
+
+    return temp if temp else filename
+
+
 def normalize_data_path(path: str) -> str | None:
     """
     パスを正規化し、data/配下の相対パスを返す（data/は除く）
@@ -150,10 +198,12 @@ def add_song(
 
     # メタデータ構築
     youtube_id = extract_youtube_id(filename)
+    song_title = extract_song_title(filename)
     _, ext = os.path.splitext(filename)
 
     metadata = {
         "filename": filename,
+        "song_title": song_title,  # 抽出した曲名
         "source_dir": normalized_dir,  # data/xxx 形式
         "youtube_id": youtube_id,  # YouTube動画ID（なければNone）
         "file_extension": ext.lower(),  # .mp3 or .wav

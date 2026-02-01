@@ -77,7 +77,7 @@ def main():
 
     # サイドバー: DB選択
     st.sidebar.header("設定")
-    
+
     # 利用可能なDBのみフィルタリング
     available_dbs = {
         name: path for name, path in DB_PATHS.items() if Path(path).exists()

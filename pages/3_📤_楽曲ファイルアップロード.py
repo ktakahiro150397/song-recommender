@@ -7,10 +7,16 @@
 import streamlit as st
 from pathlib import Path
 import os
+import sys
+
+# 親ディレクトリをパスに追加（config.py をインポート可能にする）
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from config import UPLOAD_DATA_DIR, SUPPORTED_AUDIO_FORMATS
 
 # ========== 設定 ==========
-DATA_DIR = Path("upload/data")
-SUPPORTED_FORMATS = [".wav", ".mp3"]  # 対応フォーマット
+DATA_DIR = UPLOAD_DATA_DIR
+SUPPORTED_FORMATS = SUPPORTED_AUDIO_FORMATS
 
 # ========== ページ設定 ==========
 st.set_page_config(
@@ -171,8 +177,8 @@ if uploaded_files:
             # 次のステップの案内
             st.info(
                 "📌 **次のステップ**\n\n"
-                f"アップロードしたファイルをベクトルDBに登録するには、タスク「Register Songs to DB」を実行してください。\n\n"
-                "タスクは VS Code のタスクビューから実行できます。"
+                f"アップロードしたファイルをベクトルDBに登録するには、\n\n"
+                "「🗄️ DBメンテナンス - 楽曲登録」ページで登録を実行してください。"
             )
     else:
         st.warning("保存先ディレクトリを指定してからアップロードボタンを押してください。")
@@ -182,4 +188,4 @@ else:
 
 # ========== フッター ==========
 st.divider()
-st.caption("💡 アップロード後、曲をベクトルDBに登録するには「Register Songs to DB」タスクを実行してください。")
+st.caption("💡 アップロード後、曲をベクトルDBに登録するには「🗄️ DBメンテナンス - 楽曲登録」ページを使用してください。")

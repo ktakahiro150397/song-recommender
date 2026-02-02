@@ -1,7 +1,7 @@
 """
-音声ファイルアップロードページ
+楽曲ファイルアップロードページ
 
-複数の音声ファイルをサーバーにアップロードして保存
+複数の楽曲ファイルをサーバーにアップロードして保存
 """
 
 import streamlit as st
@@ -14,14 +14,14 @@ SUPPORTED_FORMATS = [".wav", ".mp3"]  # 対応フォーマット
 
 # ========== ページ設定 ==========
 st.set_page_config(
-    page_title="音声ファイルアップロード",
+    page_title="楽曲ファイルアップロード",
     page_icon="📤",
     layout="wide",
 )
 
 # ========== タイトル ==========
-st.title("📤 音声ファイルアップロード")
-st.write("音声ファイルをサーバーの指定ディレクトリにアップロードします。")
+st.title("📤 楽曲ファイルアップロード")
+st.write("楽曲ファイルをアップロードします。")
 
 st.divider()
 
@@ -68,17 +68,20 @@ def save_uploaded_file(uploaded_file, target_dir: Path) -> bool:
 
 # ディレクトリ選択セクション
 st.subheader("📁 保存先ディレクトリの設定")
+st.text("アップロードする楽曲に最も適したディレクトリを選択してください。")
 
 # 新規ディレクトリ作成モードの切り替え
-create_new_dir = st.checkbox("新規ディレクトリを作成", value=False)
+create_new_dir = st.checkbox("新規ディレクトリを作成する", value=False)
 
 if create_new_dir:
     # 新規ディレクトリ名を入力
+    help_text="アーティスト名/グループ名/ブランド名を正しく指定してください。検索時に利用するので**非常に**重要です。既存ディレクトリがある場合は可能な限りそちらを選択してください。"
     new_dir_name = st.text_input(
-        "新規ディレクトリ名（upload/data/配下に作成されます）",
+        "新規ディレクトリ名",
         placeholder="例: shiny, gakumas, scsp",
-        help="upload/data/配下に作成されます。サブディレクトリを作成する場合は 'parent/child' のように指定してください。"
+        help=help_text
     )
+    st.error(help_text)
     target_subdir = new_dir_name.strip() if new_dir_name else None
 else:
     # 既存ディレクトリから選択
@@ -108,7 +111,7 @@ st.divider()
 st.subheader("📂 ファイルアップロード")
 
 uploaded_files = st.file_uploader(
-    f"音声ファイルを選択（対応フォーマット: {', '.join(SUPPORTED_FORMATS)}）",
+    f"楽曲ファイルを選択（対応フォーマット: {', '.join(SUPPORTED_FORMATS)}）",
     type=[fmt.lstrip('.') for fmt in SUPPORTED_FORMATS],
     accept_multiple_files=True,
     help="複数のファイルを同時に選択できます。"

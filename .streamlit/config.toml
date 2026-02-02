@@ -1,0 +1,7 @@
+[server]
+# ファイルアップロードの最大サイズ（MB単位）
+maxUploadSize = 10
+
+[theme]
+# テーマ設定（任意）
+primaryColor = "#FF6B6B"

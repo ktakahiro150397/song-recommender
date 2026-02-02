@@ -71,12 +71,12 @@ def style_distance_column(df: pd.DataFrame) -> pd.DataFrame:
 # ========== メイン画面 ==========
 
 st.set_page_config(
-    page_title="連鎖検索",
+    page_title="曲調おすすめプレイリスト",
     page_icon="🔍",
     layout="wide",
 )
 
-st.title("🔍 連鎖検索")
+st.title("🔍 曲調おすすめプレイリスト")
 st.caption("楽曲から似た曲を連鎖的に検索してプレイリストを作成")
 
 # サイドバー設定
@@ -139,8 +139,8 @@ if keyword:
             )
             auto_search = False
 
-        if auto_search or st.button("🔍 連鎖検索を実行", type="primary"):
-            with st.spinner("連鎖検索中..."):
+        if auto_search or st.button("🔍 曲調おすすめプレイリスト検索を実行", type="primary"):
+            with st.spinner("曲調おすすめプレイリスト検索中..."):
                 # DBsを初期化
                 dbs = [
                     SongVectorDB(db_path=path, distance_fn="cosine") 
@@ -183,7 +183,7 @@ if keyword:
             
             playlist_name = st.text_input(
                 "プレイリスト名",
-                value=f"曲調レコメンドプレイリスト / {start_song_name}",
+                value=f"曲調おすすめプレイリスト / {start_song_name}",
             )
 
             if st.button("🎵 YouTube Musicプレイリスト作成"):
@@ -221,7 +221,7 @@ if keyword:
                             if video_ids:
                                 playlist_id = ytmusic.create_playlist(
                                     playlist_name,
-                                    f"連鎖検索結果 ({len(video_ids)}曲)",
+                                    f"曲調おすすめプレイリスト検索結果 ({len(video_ids)}曲)",
                                     privacy=PRIVACY,
                                     video_ids=video_ids,
                                 )

@@ -103,12 +103,12 @@ def find_song_by_keyword_with_metadata(db: SongVectorDB, keyword: str = "", limi
 # ========== メイン画面 ==========
 
 st.set_page_config(
-    page_title="楽曲検索",
+    page_title="個別曲検索",
     page_icon="🎵",
     layout="wide",
 )
 
-st.title("🎵 楽曲検索")
+st.title("🎵 個別曲検索")
 st.caption("キーワードで楽曲を検索して類似曲を表示")
 
 # サイドバー設定
@@ -187,6 +187,7 @@ if search_button or "last_keyword" in st.session_state:
         # 詳細表示用の楽曲選択
         st.divider()
         st.subheader("🎯 類似曲検索（各DBから）")
+        st.info("💡 この曲に類似している曲を検索します")
 
         selected_song = st.selectbox(
             "楽曲を選択して類似曲を検索",

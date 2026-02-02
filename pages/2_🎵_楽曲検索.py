@@ -72,15 +72,27 @@ DB_PATHS = {
 # ========== ユーティリティ関数 ==========
 
 
-def find_song_by_keyword_with_metadata(db: SongVectorDB, keyword: str, limit: int = 100) -> list[tuple[str, dict]]:
-    """キーワードで部分一致検索（メタデータ付き）"""
+def find_song_by_keyword_with_metadata(db: SongVectorDB, keyword: str = "", limit: int = 100) -> list[tuple[str, dict]]:
+    """キーワードで部分一致検索（メタデータ付き）
+    
+    Args:
+        db: データベースインスタンス
+        keyword: 検索キーワード（空文字列の場合は全件取得）
+        limit: 最大取得件数
+    
+    Returns:
+        (song_id, metadata)のタプルのリスト
+    """
     all_songs = db.list_all(limit=10000)
     matches = []
 
-    keyword_lower = keyword.lower()
+    keyword_lower = keyword.lower() if keyword else ""
     for idx, song_id in enumerate(all_songs["ids"]):
-        if keyword_lower in song_id.lower():
-            metadata = all_songs["metadatas"][idx] if all_songs["metadatas"] else {}
+        metadata = all_songs["metadatas"][idx] if all_songs["metadatas"] else {}
+        source_dir = metadata.get("source_dir", "").lower()
+        
+        # キーワードが空の場合は全件マッチ、それ以外はIDまたはsource_dirで検索
+        if not keyword or keyword_lower in song_id.lower() or keyword_lower in source_dir:
             matches.append((song_id, metadata))
             if len(matches) >= limit:
                 break
@@ -136,18 +148,21 @@ st.subheader("🔍 楽曲検索")
 col1, col2 = st.columns([3, 1])
 with col1:
     keyword = st.text_input(
-        "検索キーワード（アーティスト名または曲名）",
-        placeholder="例: Yoasobi",
+        "検索キーワード（IDまたはsource_dir、空欄で全件）",
+        placeholder="例: Yoasobi または gakumas_mv",
         label_visibility="collapsed",
     )
 with col2:
     search_button = st.button("🔍 検索", type="primary", use_container_width=True)
 
 # 検索実行
-if keyword and (search_button or "last_keyword" in st.session_state):
-    if "last_keyword" not in st.session_state or st.session_state.last_keyword != keyword:
-        st.session_state.last_keyword = keyword
-        st.session_state.matches = find_song_by_keyword_with_metadata(db, keyword, limit=max_results)
+if search_button or "last_keyword" in st.session_state:
+    # キーワードが空でも検索可能にする
+    current_keyword = keyword if keyword else ""
+    
+    if "last_keyword" not in st.session_state or st.session_state.last_keyword != current_keyword:
+        st.session_state.last_keyword = current_keyword
+        st.session_state.matches = find_song_by_keyword_with_metadata(db, current_keyword, limit=10000)
 
     matches = st.session_state.matches
 
@@ -161,7 +176,7 @@ if keyword and (search_button or "last_keyword" in st.session_state):
                 "No.": idx,
                 "ファイル名": song_id,
                 "source_dir": metadata.get("source_dir", "") if metadata else "",
-                "filename": metadata.get("filename", "") if metadata else "",
+                "registered_at": metadata.get("registered_at", "") if metadata else "",
             })
 
         df = pd.DataFrame(df_data)
@@ -238,7 +253,7 @@ if keyword and (search_button or "last_keyword" in st.session_state):
                                 "ファイル名": song_id,
                                 "距離": f"{distance:.6f}",
                                 "source_dir": metadata.get("source_dir", "") if metadata else "",
-                                "filename": metadata.get("filename", "") if metadata else "",
+                                "registered_at": metadata.get("registered_at", "") if metadata else "",
                             })
                         
                         result_df = pd.DataFrame(result_data)

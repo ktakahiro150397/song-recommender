@@ -30,6 +30,9 @@ class ChannelDB:
                 CREATE TABLE IF NOT EXISTS youtube_channels (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     url TEXT NOT NULL UNIQUE,
+                    channel_id TEXT NOT NULL,
+                    channel_name TEXT,
+                    thumbnail_url TEXT,
                     registered_at TIMESTAMP NOT NULL
                 )
             """)
@@ -38,25 +41,30 @@ class ChannelDB:
                 CREATE INDEX IF NOT EXISTS idx_registered_at 
                 ON youtube_channels(registered_at DESC)
             """)
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_channel_id 
+                ON youtube_channels(channel_id)
+            """)
             conn.commit()
 
     @staticmethod
-    def validate_youtube_url(url: str) -> tuple[bool, str]:
+    def extract_channel_id(url: str) -> tuple[bool, str, str]:
         """
-        YouTubeのURLかどうかを検証する
+        YouTubeのURLからチャンネルIDを抽出する
+        ※ /channel/UCxxxxx 形式のみ受け付けます
         
         Args:
-            url: 検証するURL
+            url: YouTubeチャンネルURL
             
         Returns:
-            (検証結果, エラーメッセージ) のタプル
+            (成功/失敗, チャンネルID, エラーメッセージ) のタプル
         """
         try:
             parsed = urlparse(url)
             
             # スキームチェック
             if parsed.scheme not in ['http', 'https']:
-                return False, "URLは http または https で始まる必要があります"
+                return False, "", "URLは http または https で始まる必要があります"
             
             # ドメインチェック
             valid_domains = [
@@ -67,50 +75,86 @@ class ChannelDB:
             ]
             
             if parsed.netloc not in valid_domains:
-                return False, f"YouTubeのURLを入力してください (有効なドメイン: {', '.join(valid_domains)})"
+                return False, "", f"YouTubeのURLを入力してください (有効なドメイン: {', '.join(valid_domains)})"
             
-            # パスチェック（チャンネルURL形式かどうか）
-            path = parsed.path
-            valid_patterns = ['/channel/', '/@', '/c/', '/user/']
+            # パスからチャンネルIDを抽出（/channel/UCxxxxx 形式のみ）
+            path = parsed.path.rstrip('/')
             
-            if not any(path.startswith(pattern) for pattern in valid_patterns):
-                return False, "チャンネルURLの形式が正しくありません (例: /channel/xxx, /@username, /c/xxx, /user/xxx)"
+            # /channel/UCxxxxx 形式のみ受け付け
+            if path.startswith('/channel/UC'):
+                channel_id = path.replace('/channel/', '')
+                if channel_id:
+                    return True, channel_id, ""
             
-            return True, ""
+            return False, "", "チャンネルURLの形式が正しくありません。https://music.youtube.com/channel/UCxxxxx の形式で入力してください"
             
         except Exception as e:
-            return False, f"URL解析エラー: {str(e)}"
+            return False, "", f"URL解析エラー: {str(e)}"
+    
+    @staticmethod
+    def validate_youtube_url(url: str) -> tuple[bool, str]:
+        """
+        YouTubeのURLかどうかを検証する（後方互換性のため残す）
+        
+        Args:
+            url: 検証するURL
+            
+        Returns:
+            (検証結果, エラーメッセージ) のタプル
+        """
+        success, channel_id, error_msg = ChannelDB.extract_channel_id(url)
+        return success, error_msg
 
-    def add_channel(self, url: str) -> tuple[bool, str]:
+    def add_channel(self, url: str, ytmusic=None) -> tuple[bool, str, Optional[str]]:
         """
         チャンネルURLを登録する
         
         Args:
             url: YouTubeチャンネルのURL
+            ytmusic: YTMusicインスタンス（サムネイル・チャンネル名取得用、Noneの場合は取得なし）
             
         Returns:
-            (成功/失敗, メッセージ) のタプル
+            (成功/失敗, メッセージ, サムネイルURL) のタプル
         """
-        # URL検証
-        is_valid, error_msg = self.validate_youtube_url(url)
-        if not is_valid:
-            return False, error_msg
+        # チャンネルIDを抽出
+        success, channel_id, error_msg = self.extract_channel_id(url)
+        if not success:
+            return False, error_msg, None
+        
+        # サムネイルURLとチャンネル名を取得（YTMusic APIを使用）
+        thumbnail_url = None
+        channel_name = None
+        if ytmusic is not None:
+            try:
+                # /channel/UCxxxxx 形式の場合のみAPI呼び出し
+                if channel_id.startswith('UC'):
+                    artist_info = ytmusic.get_artist(channel_id)
+                    if artist_info:
+                        # サムネイル取得
+                        if 'thumbnails' in artist_info and len(artist_info['thumbnails']) > 0:
+                            thumbnail_url = artist_info['thumbnails'][0]['url']
+                        # チャンネル名取得
+                        if 'name' in artist_info:
+                            channel_name = artist_info['name']
+            except Exception as e:
+                # サムネイル・チャンネル名取得に失敗しても登録は続行
+                print(f"サムネイル・チャンネル名取得エラー (続行します): {str(e)}")
         
         # 登録
         try:
             with sqlite3.connect(self.db_path) as conn:
                 registered_at = datetime.now().isoformat()
                 conn.execute(
-                    "INSERT INTO youtube_channels (url, registered_at) VALUES (?, ?)",
-                    (url, registered_at)
+                    "INSERT INTO youtube_channels (url, channel_id, channel_name, thumbnail_url, registered_at) VALUES (?, ?, ?, ?, ?)",
+                    (url, channel_id, channel_name, thumbnail_url, registered_at)
                 )
                 conn.commit()
-                return True, "チャンネルURLを登録しました"
+                return True, f"チャンネルURLを登録しました (ID: {channel_id})", thumbnail_url
                 
         except sqlite3.IntegrityError:
-            return False, "このURLは既に登録されています"
+            return False, "このURLは既に登録されています", None
         except Exception as e:
-            return False, f"登録エラー: {str(e)}"
+            return False, f"登録エラー: {str(e)}", None
 
     def get_all_channels(self) -> list[dict]:
         """
@@ -122,7 +166,7 @@ class ChannelDB:
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("""
-                SELECT id, url, registered_at 
+                SELECT id, url, channel_id, channel_name, thumbnail_url, registered_at 
                 FROM youtube_channels 
                 ORDER BY registered_at DESC
             """)

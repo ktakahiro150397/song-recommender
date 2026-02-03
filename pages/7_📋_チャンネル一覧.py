@@ -59,7 +59,7 @@ else:
     
     with col_search:
         search_query = st.text_input(
-            "URLで検索",
+            "URL・チャンネル名で検索",
             placeholder="キーワードを入力...",
             label_visibility="collapsed"
         )
@@ -76,7 +76,8 @@ else:
     if search_query:
         filtered_channels = [
             ch for ch in channels 
-            if search_query.lower() in ch['url'].lower()
+            if search_query.lower() in ch['url'].lower() 
+            or (ch.get('channel_name') and search_query.lower() in ch['channel_name'].lower())
         ]
     
     # ソート
@@ -117,14 +118,31 @@ else:
         # チャンネルをカード形式で表示
         for i, channel in enumerate(page_channels, start=start_idx + 1):
             with st.container():
-                col1, col2, col3 = st.columns([1, 5, 2])
+                col1, col2, col3, col4 = st.columns([1, 1, 5, 2])
                 
                 with col1:
                     st.markdown(f"**#{i}**")
                 
                 with col2:
+                    # サムネイルを表示
+                    thumbnail_url = channel.get('thumbnail_url')
+                    if thumbnail_url:
+                        st.image(thumbnail_url, width=80)
+                    else:
+                        st.markdown("🎵")
+                
+                with col3:
+                    # チャンネル名を表示（取得できている場合）
+                    channel_name = channel.get('channel_name')
+                    if channel_name:
+                        st.markdown(f"### {channel_name}")
+                    
                     # URLをクリック可能なリンクとして表示
-                    st.markdown(f"🔗 [{channel['url']}]({channel['url']})")
+                    st.markdown(f"🔗 [{channel['url']}]({channel['url']})", unsafe_allow_html=True)
+                    
+                    # チャンネルIDを表示
+                    channel_id = channel.get('channel_id', 'N/A')
+                    st.caption(f"📺 チャンネルID: `{channel_id}`")
                     
                     # 登録日時を表示
                     registered_time = channel['registered_at']
@@ -137,7 +155,7 @@ else:
                     
                     st.caption(f"📅 登録日時: {formatted_time}")
                 
-                with col3:
+                with col4:
                     # 削除ボタン
                     if st.button(
                         "🗑️ 削除",

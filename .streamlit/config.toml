@@ -1,6 +1,17 @@
 [server]
 # ファイルアップロードの最大サイズ（MB単位）
 maxUploadSize = 10
+# 外部アクセス用設定
+headless = true
+address = "0.0.0.0"
+port = 8501
+# CORS設定（cloudflared経由のアクセスを許可）
+enableCORS = false
+enableXsrfProtection = false
+
+[browser]
+# サーバー情報の収集を無効化
+gatherUsageStats = false
 
 [theme]
 # テーマ設定（任意）

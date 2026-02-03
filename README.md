@@ -236,4 +236,76 @@ results = db.search_similar(query_embedding=song["embedding"], n_results=5)
 - [x] **Phase 1**: librosa + ChromaDB で基本実装（MVP）
 - [x] **Phase 2**: YouTube Music連携（プレイリスト自動作成）
 - [x] **Phase 2.5**: CLI引数対応・VS Codeタスク統合
-- [ ] **Phase 3**: 精度向上が必要な場合、CLAP / OpenL3 等の深層学習モデルを導入
+- [x] **Phase 3**: Docker + Cloudflared で外部公開
+- [ ] **Phase 4**: 精度向上が必要な場合、CLAP / OpenL3 等の深層学習モデルを導入
+
+---
+
+## Docker で実行
+
+### 前提条件
+
+- Docker / Docker Compose がインストール済み
+- Cloudflare アカウント（外部公開する場合）
+
+### ローカルで起動（Docker のみ）
+
+```bash
+# イメージをビルドして起動
+docker compose up --build -d song-recommender
+
+# ログを確認
+docker compose logs -f song-recommender
+```
+
+→ http://localhost:8501 でアクセス可能
+
+### Cloudflared で外部公開
+
+1. **Cloudflare Zero Trust ダッシュボードでトンネルを作成**
+   - https://one.dash.cloudflare.com/ にアクセス
+   - `Access` → `Tunnels` → `Create a tunnel`
+   - トンネル名を設定し、トークンを取得
+
+2. **Public Hostname を設定**
+   - トンネル設定で `Public Hostname` を追加
+   - Subdomain: 任意（例: `song-recommender`）
+   - Domain: 所有ドメインを選択
+   - Service: `http://song-recommender:8501`
+
+3. **環境変数を設定**
+   ```bash
+   # .env ファイルを作成
+   cp .env.example .env
+   
+   # トークンを設定
+   # .env を編集して CLOUDFLARE_TUNNEL_TOKEN を設定
+   ```
+
+4. **起動**
+   ```bash
+   docker compose up --build -d
+   
+   # ログを確認
+   docker compose logs -f
+   ```
+
+→ 設定したドメイン（例: `https://song-recommender.yourdomain.com`）でアクセス可能
+
+### データの永続化
+
+Docker Compose では以下のボリュームがマウントされます：
+
+| ホスト | コンテナ | 用途 |
+|--------|----------|------|
+| `./data/` | `/app/data/` | ChromaDB（ベクトルDB） |
+| `./upload/` | `/app/upload/` | アップロードファイル |
+| `./oauth.json` | `/app/oauth.json` | YouTube Music認証 |
+| `./browser.json` | `/app/browser.json` | YouTube Music認証 |
+
+### コンテナの停止
+
+```bash
+docker compose down
+```
+

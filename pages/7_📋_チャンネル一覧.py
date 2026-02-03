@@ -5,6 +5,7 @@
 """
 
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 from datetime import datetime
 from core.channel_db import ChannelDB
@@ -236,19 +237,77 @@ else:
 
                 st.divider()
 
-        # 「さらに読み込む」ボタン
+        # 無限スクロール: 自動読み込み
         if end_idx < len(filtered_channels):
             remaining = len(filtered_channels) - end_idx
+            
+            # ボタンを中央に配置
             cols = st.columns([1, 2, 1])
             with cols[1]:
-                if st.button(
-                    f"📖 さらに{min(items_per_page, remaining)}件読み込む ({end_idx}/{len(filtered_channels)}件表示中)",
+                load_more_clicked = st.button(
+                    f"📖 さらに{min(items_per_page, remaining)}件読み込む",
                     type="primary",
                     use_container_width=True,
-                    key="load_more"
-                ):
+                    key="load_more_auto"
+                )
+                
+                if load_more_clicked:
                     st.session_state.items_to_show += items_per_page
                     st.rerun()
+            
+            # 自動読み込みトリガー用の不可視要素
+            st.markdown('<div id="load-more-trigger" style="height: 0; visibility: hidden;"></div>', unsafe_allow_html=True)
+            
+            # 自動クリック用のJavaScript
+            # スクロールして要素が表示されたら自動的にボタンをクリック
+            components.html(
+                """
+                <script>
+                    // Streamlitアプリのメインドキュメントを取得
+                    function findMainDocument() {
+                        // Streamlitはiframeを使用している可能性があるため、複数の方法を試す
+                        try {
+                            // 現在のドキュメント内でボタンを探す
+                            return document;
+                        } catch (e) {
+                            return null;
+                        }
+                    }
+                    
+                    function autoClickLoadMore() {
+                        const mainDoc = findMainDocument();
+                        if (!mainDoc) return;
+                        
+                        const trigger = mainDoc.getElementById('load-more-trigger');
+                        if (!trigger) return;
+                        
+                        const rect = trigger.getBoundingClientRect();
+                        const isVisible = rect.top < window.innerHeight && rect.bottom >= 0;
+                        
+                        if (isVisible) {
+                            // "さらに読み込む"ボタンを探してクリック
+                            const buttons = mainDoc.querySelectorAll('button');
+                            for (let btn of buttons) {
+                                if (btn.textContent.includes('さらに') && btn.textContent.includes('件読み込む')) {
+                                    // スクロール位置を記憶してからクリック
+                                    btn.click();
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    
+                    // スクロールイベントリスナーを追加
+                    window.addEventListener('scroll', autoClickLoadMore, { passive: true });
+                    
+                    // ページ読み込み後に初回チェック
+                    setTimeout(autoClickLoadMore, 1000);
+                </script>
+                """,
+                height=0,
+            )
+            
+            st.caption(f"📄 残り{remaining}件 - スクロールすると自動的に読み込まれます")
         else:
             st.success(f"✅ すべてのチャンネル ({len(filtered_channels)}件) を表示しました")
 

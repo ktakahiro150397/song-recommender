@@ -95,32 +95,21 @@ else:
     if not filtered_channels:
         st.warning("検索条件に一致するチャンネルがありません")
     else:
-        # ページネーション設定
+        # 無限スクロール設定
         items_per_page = 10
-        total_pages = (len(filtered_channels) - 1) // items_per_page + 1
-
-        # ページ番号選択（上部）
-        if total_pages > 1:
-            page_top = st.number_input(
-                "ページ",
-                min_value=1,
-                max_value=total_pages,
-                value=1,
-                step=1,
-                help=f"全{total_pages}ページ",
-                key="page_top",
-            )
-            page = page_top
-        else:
-            page = 1
-
+        
+        # セッションステートの初期化（検索条件が変わったらリセット）
+        current_search_key = f"{search_query}_{sort_order}"
+        if "last_search_key" not in st.session_state or st.session_state.last_search_key != current_search_key:
+            st.session_state.items_to_show = items_per_page
+            st.session_state.last_search_key = current_search_key
+        
         # 表示範囲を計算
-        start_idx = (page - 1) * items_per_page
-        end_idx = min(start_idx + items_per_page, len(filtered_channels))
-        page_channels = filtered_channels[start_idx:end_idx]
+        end_idx = min(st.session_state.items_to_show, len(filtered_channels))
+        page_channels = filtered_channels[0:end_idx]
 
         # チャンネルをカード形式で表示
-        for i, channel in enumerate(page_channels, start=start_idx + 1):
+        for i, channel in enumerate(page_channels, start=1):
             with st.container():
                 # カード風デザイン（レスポンシブ対応）
                 card_col1, card_col2 = st.columns([1, 3])
@@ -247,11 +236,21 @@ else:
 
                 st.divider()
 
-        # ページネーション情報
-        if total_pages > 1:
-            st.caption(
-                f"ページ {page} / {total_pages} （{start_idx + 1}-{end_idx}件目を表示中）"
-            )
+        # 「さらに読み込む」ボタン
+        if end_idx < len(filtered_channels):
+            remaining = len(filtered_channels) - end_idx
+            cols = st.columns([1, 2, 1])
+            with cols[1]:
+                if st.button(
+                    f"📖 さらに{min(items_per_page, remaining)}件読み込む ({end_idx}/{len(filtered_channels)}件表示中)",
+                    type="primary",
+                    use_container_width=True,
+                    key="load_more"
+                ):
+                    st.session_state.items_to_show += items_per_page
+                    st.rerun()
+        else:
+            st.success(f"✅ すべてのチャンネル ({len(filtered_channels)}件) を表示しました")
 
 # エクスポート機能
 st.markdown("---")

@@ -256,52 +256,61 @@ else:
                     st.rerun()
             
             # 自動読み込みトリガー用の不可視要素
-            st.markdown('<div id="load-more-trigger" style="height: 0; visibility: hidden;"></div>', unsafe_allow_html=True)
+            st.markdown('<div id="load-more-trigger" style="height: 1px;"></div>', unsafe_allow_html=True)
             
             # 自動クリック用のJavaScript
             # スクロールして要素が表示されたら自動的にボタンをクリック
             components.html(
                 """
                 <script>
-                    // Streamlitアプリのメインドキュメントを取得
-                    function findMainDocument() {
-                        // Streamlitはiframeを使用している可能性があるため、複数の方法を試す
-                        try {
-                            // 現在のドキュメント内でボタンを探す
-                            return document;
-                        } catch (e) {
-                            return null;
-                        }
-                    }
+                    let autoLoadTriggered = false;
                     
                     function autoClickLoadMore() {
-                        const mainDoc = findMainDocument();
-                        if (!mainDoc) return;
+                        if (autoLoadTriggered) return;
                         
-                        const trigger = mainDoc.getElementById('load-more-trigger');
-                        if (!trigger) return;
-                        
-                        const rect = trigger.getBoundingClientRect();
-                        const isVisible = rect.top < window.innerHeight && rect.bottom >= 0;
-                        
-                        if (isVisible) {
-                            // "さらに読み込む"ボタンを探してクリック
-                            const buttons = mainDoc.querySelectorAll('button');
-                            for (let btn of buttons) {
-                                if (btn.textContent.includes('さらに') && btn.textContent.includes('件読み込む')) {
-                                    // スクロール位置を記憶してからクリック
-                                    btn.click();
-                                    break;
+                        try {
+                            // 親ウィンドウのドキュメントにアクセス
+                            const parentDoc = window.parent.document;
+                            const trigger = parentDoc.getElementById('load-more-trigger');
+                            
+                            if (!trigger) {
+                                return;
+                            }
+                            
+                            // トリガー要素が画面内に表示されているかチェック
+                            const rect = trigger.getBoundingClientRect();
+                            const windowHeight = window.parent.innerHeight;
+                            const isVisible = rect.top >= 0 && rect.top < windowHeight;
+                            
+                            if (isVisible) {
+                                // "さらに読み込む"ボタンを探してクリック
+                                const buttons = parentDoc.querySelectorAll('button[kind="primary"]');
+                                for (let btn of buttons) {
+                                    const text = btn.textContent || '';
+                                    if (text.includes('さらに') && text.includes('件読み込む')) {
+                                        autoLoadTriggered = true;
+                                        btn.click();
+                                        break;
+                                    }
                                 }
                             }
+                        } catch (e) {
+                            console.error('Auto-load error:', e);
                         }
                     }
                     
-                    // スクロールイベントリスナーを追加
-                    window.addEventListener('scroll', autoClickLoadMore, { passive: true });
+                    // 親ウィンドウのスクロールイベントを監視
+                    try {
+                        window.parent.addEventListener('scroll', autoClickLoadMore, { passive: true });
+                    } catch (e) {
+                        console.error('Failed to add scroll listener:', e);
+                    }
+                    
+                    // 定期的にチェック（フォールバック）
+                    setInterval(autoClickLoadMore, 500);
                     
                     // ページ読み込み後に初回チェック
-                    setTimeout(autoClickLoadMore, 1000);
+                    setTimeout(autoClickLoadMore, 800);
                 </script>
                 """,
                 height=0,

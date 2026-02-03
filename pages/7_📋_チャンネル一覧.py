@@ -118,76 +118,79 @@ else:
         # チャンネルをカード形式で表示
         for i, channel in enumerate(page_channels, start=start_idx + 1):
             with st.container():
-                col1, col2, col3, col4 = st.columns([1, 1, 5, 2])
+                # カード風デザイン（レスポンシブ対応）
+                card_col1, card_col2 = st.columns([1, 3])
                 
-                with col1:
-                    st.markdown(f"**#{i}**")
-                
-                with col2:
+                with card_col1:
                     # サムネイルを表示
                     thumbnail_url = channel.get('thumbnail_url')
                     if thumbnail_url:
-                        st.image(thumbnail_url, width=80)
+                        st.image(thumbnail_url, width=150)
                     else:
                         st.markdown("🎵")
                 
-                with col3:
-                    # チャンネル名を表示（取得できている場合）
-                    channel_name = channel.get('channel_name')
-                    if channel_name:
-                        st.markdown(f"### {channel_name}")
-                    
-                    # URLをクリック可能なリンクとして表示
+                with card_col2:
+                    # 番号とアーティスト名を横並びで余白なし表示
+                    st.markdown(
+                        f"<div style='display:flex;align-items:center;gap:0.5em;margin-bottom:0;'>"
+                        f"<span style='font-weight:bold;font-size:1.2em;'>#{i}</span>"
+                        f"<span style='font-weight:bold;font-size:1.2em;'>{channel.get('channel_name','')}</span>"
+                        f"</div>", unsafe_allow_html=True
+                    )
+                    # URL
                     st.markdown(f"🔗 [{channel['url']}]({channel['url']})", unsafe_allow_html=True)
-                    
-                    # チャンネルIDを表示
-                    channel_id = channel.get('channel_id', 'N/A')
-                    st.caption(f"📺 チャンネルID: `{channel_id}`")
-                    
-                    # 登録日時を表示
-                    registered_time = channel['registered_at']
-                    # ISO形式の日時を読みやすく整形
-                    try:
-                        dt = datetime.fromisoformat(registered_time)
-                        formatted_time = dt.strftime("%Y年%m月%d日 %H:%M:%S")
-                    except:
-                        formatted_time = registered_time[:19]
-                    
-                    st.caption(f"📅 登録日時: {formatted_time}")
-                
-                with col4:
-                    # 削除ボタン
-                    if st.button(
+                    # チャンネルIDと登録日時を横並び
+                    info_col1, info_col2 = st.columns(2)
+                    with info_col1:
+                        channel_id = channel.get('channel_id', 'N/A')
+                        st.caption(f"📺 ID: `{channel_id}`")
+                    with info_col2:
+                        registered_time = channel['registered_at']
+                        try:
+                            dt = datetime.fromisoformat(registered_time)
+                            formatted_time = dt.strftime("%Y/%m/%d %H:%M")
+                        except:
+                            formatted_time = registered_time[:16]
+                        st.caption(f"📅 {formatted_time}")
+                    # 一番下に削除ボタン（幅固定）
+                    st.markdown("<div style='height:0.5em'></div>", unsafe_allow_html=True)
+                    btn_style = "display:block;width:120px;margin:0 auto;"
+                    btn_placeholder = st.empty()
+                    if btn_placeholder.button(
                         "🗑️ 削除",
                         key=f"delete_{channel['id']}",
                         type="secondary",
-                        use_container_width=True
+                        help="削除"
                     ):
-                        # 確認ダイアログ
                         st.session_state[f"confirm_delete_{channel['id']}"] = True
-                
-                # 削除確認ダイアログ
-                if st.session_state.get(f"confirm_delete_{channel['id']}", False):
-                    st.warning(f"本当に削除しますか？\n\n{channel['url']}")
-                    
-                    col_yes, col_no = st.columns(2)
-                    with col_yes:
-                        if st.button("はい、削除します", key=f"confirm_yes_{channel['id']}", type="primary"):
-                            success, message = db.delete_channel(channel['id'])
-                            if success:
-                                st.success(message)
-                                # 状態をクリアして再読み込み
-                                if f"confirm_delete_{channel['id']}" in st.session_state:
-                                    del st.session_state[f"confirm_delete_{channel['id']}"]
+                    # ボタン幅をCSSで制御
+                    st.markdown(f"""
+                        <style>
+                        div[data-testid='stButton'] button[key='delete_{channel['id']}'] {{
+                            width:120px !important;
+                            min-width:120px !important;
+                            max-width:120px !important;
+                        }}
+                        </style>
+                    """, unsafe_allow_html=True)
+                    # 削除確認ダイアログ
+                    if st.session_state.get(f"confirm_delete_{channel['id']}", False):
+                        st.warning(f"本当に削除しますか？")
+                        col_yes, col_no = st.columns(2)
+                        with col_yes:
+                            if st.button("削除", key=f"confirm_yes_{channel['id']}", type="primary", use_container_width=True):
+                                success, message = db.delete_channel(channel['id'])
+                                if success:
+                                    st.success(message)
+                                    if f"confirm_delete_{channel['id']}" in st.session_state:
+                                        del st.session_state[f"confirm_delete_{channel['id']}"]
+                                    st.rerun()
+                                else:
+                                    st.error(message)
+                        with col_no:
+                            if st.button("キャンセル", key=f"confirm_no_{channel['id']}", use_container_width=True):
+                                del st.session_state[f"confirm_delete_{channel['id']}"]
                                 st.rerun()
-                            else:
-                                st.error(message)
-                    
-                    with col_no:
-                        if st.button("キャンセル", key=f"confirm_no_{channel['id']}"):
-                            # 確認ダイアログを閉じる
-                            del st.session_state[f"confirm_delete_{channel['id']}"]
-                            st.rerun()
                 
                 st.divider()
         

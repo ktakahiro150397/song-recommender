@@ -6,15 +6,20 @@
     uv run register_songs.py --parallel thread  # ThreadPool並列
     uv run register_songs.py --parallel process # ProcessPool並列（CPU効率◎）
     uv run register_songs.py -p process         # 短縮形
+    uv run register_songs.py --youtube-queue --parallel process  # YouTubeキューから処理
 """
 
 import argparse
 import os
 import re
+import subprocess
+import tempfile
 from datetime import datetime
+from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
 from core.db_manager import SongVectorDB
 from core.feature_extractor import FeatureExtractor
+from core.song_queue_db import SongQueueDB
 
 # ========== 定数設定 ==========
 
@@ -162,6 +167,183 @@ def get_file_size_mb(file_path: str) -> float:
         return 0.0
 
 
+def download_youtube_audio(video_id: str, output_dir: str) -> tuple[bool, str, str]:
+    """
+    yt-dlpを使用してYouTube動画から音声をダウンロード
+
+    Args:
+        video_id: YouTube動画ID
+        output_dir: 出力ディレクトリ
+
+    Returns:
+        (成功フラグ, メッセージ, ダウンロードしたファイルパス)
+    """
+    try:
+        # yt-dlpコマンドを構築
+        output_template = os.path.join(output_dir, f"%(title)s [{video_id}].%(ext)s")
+        cmd = [
+            "yt-dlp",
+            "-x",  # 音声のみ抽出
+            "--audio-format",
+            "wav",  # WAV形式で保存
+            "--audio-quality",
+            "0",  # 最高品質
+            "-o",
+            output_template,
+            f"https://www.youtube.com/watch?v={video_id}",
+        ]
+
+        # ダウンロード実行
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, encoding="utf-8", timeout=300
+        )
+
+        if result.returncode != 0:
+            return False, f"ダウンロードエラー: {result.stderr}", ""
+
+        # ダウンロードされたファイルを探す（ブラケット付きのvideo_idを含むファイル）
+        downloaded_files = [
+            f
+            for f in Path(output_dir).glob("*")
+            if f.is_file() and f"[{video_id}]" in f.name
+        ]
+
+        if not downloaded_files:
+            return False, "ダウンロードしたファイルが見つかりません", ""
+
+        file_path = str(downloaded_files[0])
+        return True, "ダウンロード成功", file_path
+
+    except subprocess.TimeoutExpired:
+        return (
+            False,
+            "ダウンロードがタイムアウトしました（5分以内に完了しませんでした）",
+            "",
+        )
+    except FileNotFoundError:
+        return (
+            False,
+            "yt-dlpが見つかりません。インストールされているか確認してください",
+            "",
+        )
+    except Exception as e:
+        return False, f"予期しないエラー: {str(e)}", ""
+
+
+def process_youtube_queue(parallel_mode: str = "none") -> None:
+    """
+    YouTubeキューDBから未処理の曲をダウンロード・登録する
+
+    Args:
+        parallel_mode: 並列処理モード（none/thread/process）
+    """
+    print("=" * 60)
+    print("🎵 YouTubeキューから音声ファイルをダウンロード・登録")
+    print(f"   並列モード: {parallel_mode}")
+    print("=" * 60)
+
+    # キューDBを初期化
+    queue_db = SongQueueDB()
+    pending_songs = queue_db.get_pending_songs()
+
+    if not pending_songs:
+        print("\n未処理の曲はありません")
+        return
+
+    print(f"\n未処理の曲: {len(pending_songs)}件\n")
+
+    # ベクトルDBを初期化
+    dbs_and_extractors = []
+    for config in DB_CONFIGS:
+        db = SongVectorDB(db_path=config["path"], distance_fn="cosine")
+        extractor = FeatureExtractor(duration=DURATION, mode=config["mode"])
+        dbs_and_extractors.append((db, extractor, config["mode"]))
+        print(f"   DB: {config['path']} (mode={config['mode']})")
+
+    # 一時ディレクトリを作成
+    temp_dir = tempfile.mkdtemp(prefix="youtube_audio_")
+    print(f"\n   一時ディレクトリ: {temp_dir}\n")
+
+    success_count = 0
+    failed_count = 0
+
+    try:
+        for idx, song in enumerate(pending_songs, 1):
+            video_id = song["video_id"]
+            url = song["url"]
+
+            print(f"[{idx}/{len(pending_songs)}] {video_id} - {url}")
+
+            # ダウンロード
+            download_success, download_msg, file_path = download_youtube_audio(
+                video_id, temp_dir
+            )
+
+            if not download_success:
+                print(f"   ❌ ダウンロード失敗: {download_msg}")
+                queue_db.mark_as_failed(video_id)
+                failed_count += 1
+                continue
+
+            print(f"   ✅ ダウンロード成功: {os.path.basename(file_path)}")
+
+            # ベクトルDBに登録
+            try:
+                filename = os.path.basename(file_path)
+                normalized_dir = (
+                    "youtube"  # YouTubeから取得したものはyoutubeディレクトリ扱い
+                )
+
+                registered = False
+                for db, extractor, mode in dbs_and_extractors:
+                    if add_song(db, extractor, file_path, filename, normalized_dir):
+                        registered = True
+
+                if registered:
+                    print(f"   ✅ DB登録成功")
+                    queue_db.mark_as_processed(video_id)
+                    success_count += 1
+                else:
+                    print(f"   ⚠️  既に登録済み")
+                    queue_db.mark_as_processed(video_id)
+                    success_count += 1
+
+            except Exception as e:
+                print(f"   ❌ DB登録失敗: {str(e)}")
+                queue_db.mark_as_failed(video_id)
+                failed_count += 1
+
+            # ダウンロードしたファイルを削除
+            try:
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+            except Exception as e:
+                print(f"   ⚠️  ファイル削除エラー: {str(e)}")
+
+            print()
+
+    finally:
+        # 一時ディレクトリを削除
+        try:
+            import shutil
+
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        except Exception as e:
+            print(f"⚠️  一時ディレクトリ削除エラー: {str(e)}")
+
+    # 結果サマリー
+    print("=" * 60)
+    print("📊 結果サマリー")
+    print("=" * 60)
+    print(f"   成功: {success_count} 曲")
+    print(f"   失敗: {failed_count} 曲")
+
+    for db, _, mode in dbs_and_extractors:
+        print(f"   DB ({mode}): {db.count()} 曲")
+
+    print("\n✅ 完了！")
+
+
 # ========== メイン関数 ==========
 
 
@@ -243,7 +425,18 @@ def main():
         default="none",
         help="並列処理モード: none(直列), thread(ThreadPool), process(ProcessPool)",
     )
+    parser.add_argument(
+        "--youtube-queue",
+        "-y",
+        action="store_true",
+        help="YouTubeキューDBから未処理の曲をダウンロード・登録する",
+    )
     args = parser.parse_args()
+
+    # YouTubeキューモードの場合
+    if args.youtube_queue:
+        process_youtube_queue(parallel_mode=args.parallel)
+        return
 
     parallel_mode = args.parallel
     print("=" * 60)

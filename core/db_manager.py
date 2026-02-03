@@ -104,7 +104,9 @@ class SongVectorDB:
                     time.sleep(0.5 * (attempt + 1))  # 指数バックオフ
                     continue
                 # 最後のリトライでも失敗した場合はNoneを返す（未登録扱い）
-                print(f"Warning: Failed to get song '{song_id}' after {max_retries} retries: {e}")
+                print(
+                    f"Warning: Failed to get song '{song_id}' after {max_retries} retries: {e}"
+                )
                 return None
         if result["ids"]:
             # embeddingsの存在チェック（配列なのでNoneかどうかで判定）

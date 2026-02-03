@@ -150,8 +150,13 @@ def chain_search_to_list(
     print(f"   取得曲数: {n_songs}, DB数: {len(dbs)}")
     print(f"{'='*60}")
 
-    # 開始曲の存在確認
-    exist_song = dbs[0].get_song(song_id=current_song_id)
+    # 開始曲の存在確認（全てのDBで確認）
+    exist_song = None
+    for db in dbs:
+        exist_song = db.get_song(song_id=current_song_id)
+        if exist_song is not None:
+            break
+
     if exist_song is None:
         print(f"❌ 開始曲 {current_song_id} がDBに見つかりません。")
         return []

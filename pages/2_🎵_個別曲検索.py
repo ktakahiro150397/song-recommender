@@ -61,9 +61,12 @@ def style_distance_column(df: pd.DataFrame) -> pd.DataFrame:
         except:
             return ""
 
-    # 距離列にのみスタイルを適用
-    styled = df.style.applymap(color_distance, subset=["距離"])
-    return styled
+    # 距離列が存在する場合のみスタイルを適用
+    if "距離" in df.columns:
+        styled = df.style.map(color_distance, subset=["距離"])
+        return styled
+    else:
+        return df.style
 
 
 # ========== 設定 ==========
@@ -96,12 +99,14 @@ def find_song_by_keyword_with_metadata(
     for idx, song_id in enumerate(all_songs["ids"]):
         metadata = all_songs["metadatas"][idx] if all_songs["metadatas"] else {}
         source_dir = metadata.get("source_dir", "").lower()
+        song_title = metadata.get("song_title", "").lower()
 
-        # キーワードが空の場合は全件マッチ、それ以外はIDまたはsource_dirで検索
+        # キーワードが空の場合は全件マッチ、それ以外はID、source_dir、song_titleで検索
         if (
             not keyword
             or keyword_lower in song_id.lower()
             or keyword_lower in source_dir
+            or keyword_lower in song_title
         ):
             matches.append((song_id, metadata))
             if len(matches) >= limit:
@@ -155,8 +160,8 @@ st.subheader("🔍 楽曲検索")
 col1, col2 = st.columns([3, 1])
 with col1:
     keyword = st.text_input(
-        "検索キーワード（IDまたはsource_dir、空欄で全件）",
-        placeholder="例: Yoasobi または gakumas_mv",
+        "検索キーワード（曲名、ID、source_dir、空欄で全件）",
+        placeholder="例: ray または Yoasobi または gakumas_mv または youtube",
         label_visibility="collapsed",
     )
 with col2:
@@ -222,12 +227,16 @@ if search_button or "last_keyword" in st.session_state:
 
         if st.button("🔍 類似曲を検索", type="secondary"):
             with st.spinner("類似曲を検索中..."):
-                from config import DB_PATHS
-
-                # 3つのDBをそれぞれ初期化
-                db_full = SongVectorDB(db_path=DB_PATHS[0], distance_fn="cosine")
-                db_balance = SongVectorDB(db_path=DB_PATHS[1], distance_fn="cosine")
-                db_minimal = SongVectorDB(db_path=DB_PATHS[2], distance_fn="cosine")
+                # 3つのDBをそれぞれ初期化（正しいパスと名前の対応）
+                db_full = SongVectorDB(
+                    db_path="data/chroma_db_cos_full", distance_fn="cosine"
+                )
+                db_balance = SongVectorDB(
+                    db_path="data/chroma_db_cos_balance", distance_fn="cosine"
+                )
+                db_minimal = SongVectorDB(
+                    db_path="data/chroma_db_cos_minimal", distance_fn="cosine"
+                )
 
                 dbs = [
                     ("Full", db_full),
@@ -241,7 +250,7 @@ if search_button or "last_keyword" in st.session_state:
                     song_data = db_instance.get_song(
                         selected_song, include_embedding=True
                     )
-                    if song_data and "embedding" in song_data:
+                    if song_data and song_data.get("embedding") is not None:
                         similar = db_instance.search_similar(
                             query_embedding=song_data["embedding"],
                             n_results=n_results + 1,  # 自分自身も含まれるので+1
@@ -289,9 +298,12 @@ if search_button or "last_keyword" in st.session_state:
 
                         result_df = pd.DataFrame(result_data)
                         # 距離列のカラム名を指定
-                        styled_result_df = result_df.style.applymap(
-                            lambda val: style_distance_value(val), subset=["距離"]
-                        )
+                        if "距離" in result_df.columns:
+                            styled_result_df = result_df.style.map(
+                                lambda val: style_distance_value(val), subset=["距離"]
+                            )
+                        else:
+                            styled_result_df = result_df.style
                         st.dataframe(
                             styled_result_df, use_container_width=True, hide_index=True
                         )

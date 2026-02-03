@@ -2177,6 +2177,7 @@ dependencies = [
     { name = "librosa" },
     { name = "numpy" },
     { name = "pandas" },
+    { name = "python-dotenv" },
     { name = "streamlit" },
     { name = "ytmusicapi" },
 ]
@@ -2188,6 +2189,7 @@ requires-dist = [
     { name = "librosa", specifier = ">=0.10.0" },
     { name = "numpy", specifier = ">=1.24.0" },
     { name = "pandas", specifier = ">=2.0.0" },
+    { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "streamlit", specifier = ">=1.31.0" },
     { name = "ytmusicapi", specifier = ">=1.11.5" },
 ]

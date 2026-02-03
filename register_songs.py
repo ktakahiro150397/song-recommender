@@ -12,7 +12,9 @@
 import argparse
 import os
 import re
+import signal
 import subprocess
+import sys
 import tempfile
 from datetime import datetime
 from pathlib import Path
@@ -20,6 +22,12 @@ from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_compl
 from core.db_manager import SongVectorDB
 from core.feature_extractor import FeatureExtractor
 from core.song_queue_db import SongQueueDB
+from config import DB_CONFIGS
+
+# グローバル変数：中断フラグ
+_interrupted = False
+_processing_count = 0
+_total_files = 0
 
 # ========== 定数設定 ==========
 
@@ -31,15 +39,26 @@ SOUND_DIRS = [
     # "F:/million",
 ]
 
-# DB設定
-DB_CONFIGS = [
-    {"path": "data/chroma_db_cos_minimal", "mode": "minimal"},
-    {"path": "data/chroma_db_cos_balance", "mode": "balanced"},
-    {"path": "data/chroma_db_cos_full", "mode": "full"},
-]
-
 # 音声抽出設定
 DURATION = 90  # 秒
+
+
+# ========== シグナルハンドラ ==========
+
+
+def signal_handler(sig, frame):
+    """Ctrl+C (SIGINT) を捕捉して安全に終了する"""
+    global _interrupted
+    if not _interrupted:
+        _interrupted = True
+        print("\n\n⚠️  中断リクエストを受信しました...")
+        print(
+            f"   現在処理中のファイルが完了したら終了します ({_processing_count}/{_total_files})"
+        )
+        print("   もう一度 Ctrl+C を押すと強制終了します\n")
+    else:
+        print("\n🛑 強制終了します...")
+        sys.exit(1)
 
 
 # ========== ヘルパー関数 ==========
@@ -243,8 +262,17 @@ def process_youtube_queue(parallel_mode: str = "none") -> None:
     print("=" * 60)
 
     # キューDBを初期化
-    queue_db = SongQueueDB()
+    print("\n🔌 YouTubeキューDB接続中...")
+    try:
+        queue_db = SongQueueDB()
+        print("✅ YouTubeキューDB接続成功")
+    except Exception as e:
+        print(f"❌ YouTubeキューDB接続エラー: {str(e)}")
+        raise
+
+    print("📝 未処理の曲を取得中...")
     pending_songs = queue_db.get_pending_songs()
+    print(f"✅ 取得完了")
 
     if not pending_songs:
         print("\n未処理の曲はありません")
@@ -253,12 +281,23 @@ def process_youtube_queue(parallel_mode: str = "none") -> None:
     print(f"\n未処理の曲: {len(pending_songs)}件\n")
 
     # ベクトルDBを初期化
+    print("📊 ベクトルDBを初期化中...")
     dbs_and_extractors = []
     for config in DB_CONFIGS:
-        db = SongVectorDB(db_path=config["path"], distance_fn="cosine")
-        extractor = FeatureExtractor(duration=DURATION, mode=config["mode"])
-        dbs_and_extractors.append((db, extractor, config["mode"]))
-        print(f"   DB: {config['path']} (mode={config['mode']})")
+        print(f"   🔌 DB接続開始: {config['collection']} (mode={config['mode']})")
+        try:
+            db = SongVectorDB(
+                collection_name=config["collection"], distance_fn="cosine"
+            )
+            print(f"   ✅ DB接続成功: {config['collection']}")
+            print(f"   🔧 特徴量抽出器を初期化中: mode={config['mode']}")
+            extractor = FeatureExtractor(duration=DURATION, mode=config["mode"])
+            print(f"   ✅ 特徴量抽出器初期化完了")
+            dbs_and_extractors.append((db, extractor, config["mode"]))
+            print(f"   📊 現在のDB曲数: {db.count()} 曲\n")
+        except Exception as e:
+            print(f"   ❌ DB初期化エラー: {config['collection']} - {str(e)}")
+            raise
 
     # 一時ディレクトリを作成
     temp_dir = tempfile.mkdtemp(prefix="youtube_audio_")
@@ -267,8 +306,20 @@ def process_youtube_queue(parallel_mode: str = "none") -> None:
     success_count = 0
     failed_count = 0
 
+    # シグナルハンドラを設定
+    global _interrupted, _processing_count, _total_files
+    _interrupted = False
+    _total_files = len(pending_songs)
+    signal.signal(signal.SIGINT, signal_handler)
+
     try:
         for idx, song in enumerate(pending_songs, 1):
+            # 中断フラグをチェック
+            if _interrupted:
+                print("\n⚠️  処理を中断しました")
+                break
+
+            _processing_count = idx
             video_id = song["video_id"]
             url = song["url"]
 
@@ -323,6 +374,9 @@ def process_youtube_queue(parallel_mode: str = "none") -> None:
             print()
 
     finally:
+        # シグナルハンドラをリセット
+        signal.signal(signal.SIGINT, signal.SIG_DFL)
+
         # 一時ディレクトリを削除
         try:
             import shutil
@@ -337,11 +391,16 @@ def process_youtube_queue(parallel_mode: str = "none") -> None:
     print("=" * 60)
     print(f"   成功: {success_count} 曲")
     print(f"   失敗: {failed_count} 曲")
+    if _interrupted:
+        print(f"   中断: {len(pending_songs) - _processing_count} 曲（未処理）")
 
     for db, _, mode in dbs_and_extractors:
         print(f"   DB ({mode}): {db.count()} 曲")
 
-    print("\n✅ 完了！")
+    if _interrupted:
+        print("\n⚠️  処理が中断されました")
+    else:
+        print("\n✅ 完了！")
 
 
 # ========== メイン関数 ==========
@@ -376,7 +435,11 @@ def add_song(
         return False
 
     # 特徴量抽出
-    embedding = extractor.extract_to_vector(file_path)
+    try:
+        embedding = extractor.extract_to_vector(file_path)
+    except Exception as e:
+        print(f"   ❌ 特徴量抽出エラー ({filename}): {str(e)}")
+        raise
 
     # メタデータ構築
     youtube_id = extract_youtube_id(filename)
@@ -408,8 +471,12 @@ def process_single_db(args: tuple) -> bool:
     db_config, file_path, filename, normalized_dir, duration = args
 
     # プロセス内でDB・Extractorを初期化
-    db = SongVectorDB(db_path=db_config["path"], distance_fn="cosine")
-    extractor = FeatureExtractor(duration=duration, mode=db_config["mode"])
+    try:
+        db = SongVectorDB(collection_name=db_config["collection"], distance_fn="cosine")
+        extractor = FeatureExtractor(duration=duration, mode=db_config["mode"])
+    except Exception as e:
+        print(f"❌ プロセス内DB初期化エラー ({db_config['collection']}): {str(e)}")
+        raise
 
     return add_song(db, extractor, file_path, filename, normalized_dir)
 
@@ -445,12 +512,23 @@ def main():
     print("=" * 60)
 
     # DB・抽出器を初期化
+    print("\n📊 ベクトルDBを初期化中...")
     dbs_and_extractors = []
     for config in DB_CONFIGS:
-        db = SongVectorDB(db_path=config["path"], distance_fn="cosine")
-        extractor = FeatureExtractor(duration=DURATION, mode=config["mode"])
-        dbs_and_extractors.append((db, extractor, config["mode"]))
-        print(f"   DB: {config['path']} (mode={config['mode']})")
+        print(f"   🔌 DB接続開始: {config['collection']} (mode={config['mode']})")
+        try:
+            db = SongVectorDB(
+                collection_name=config["collection"], distance_fn="cosine"
+            )
+            print(f"   ✅ DB接続成功: {config['collection']}")
+            print(f"   🔧 特徴量抽出器を初期化中: mode={config['mode']}")
+            extractor = FeatureExtractor(duration=DURATION, mode=config["mode"])
+            print(f"   ✅ 特徴量抽出器初期化完了")
+            dbs_and_extractors.append((db, extractor, config["mode"]))
+            print(f"   📊 現在のDB曲数: {db.count()} 曲\n")
+        except Exception as e:
+            print(f"   ❌ DB初期化エラー: {config['collection']} - {str(e)}")
+            raise
 
     print()
 
@@ -464,6 +542,11 @@ def main():
         thread_executor = ThreadPoolExecutor(max_workers=len(DB_CONFIGS))
     elif parallel_mode == "process":
         process_executor = ProcessPoolExecutor(max_workers=len(DB_CONFIGS))
+
+    # シグナルハンドラを設定
+    global _interrupted, _processing_count, _total_files
+    _interrupted = False
+    signal.signal(signal.SIGINT, signal_handler)
 
     try:
         for sound_dir in SOUND_DIRS:
@@ -483,7 +566,16 @@ def main():
             print(f"    Found {len(audio_files)} audio files")
 
             current_dir = None
-            for file_path, filename, normalized_dir in audio_files:
+            _total_files = len(audio_files)
+
+            for idx, (file_path, filename, normalized_dir) in enumerate(audio_files, 1):
+                # 中断フラグをチェック
+                if _interrupted:
+                    print("\n⚠️  処理を中断しました")
+                    break
+
+                _processing_count = idx
+
                 # ディレクトリが変わったら表示
                 if normalized_dir != current_dir:
                     current_dir = normalized_dir
@@ -520,7 +612,18 @@ def main():
                         thread_executor.submit(process_for_db, item)
                         for item in dbs_and_extractors
                     ]
-                    results = [f.result() for f in as_completed(futures)]
+                    results = []
+                    for f in as_completed(futures):
+                        if _interrupted:
+                            # 中断時は残りのタスクをキャンセル
+                            for future in futures:
+                                future.cancel()
+                            break
+                        try:
+                            results.append(f.result())
+                        except Exception as e:
+                            print(f"    ⚠️  並列処理エラー: {str(e)}")
+                            results.append(False)
 
                 elif parallel_mode == "process":
                     # ProcessPool並列（GIL回避、CPU向け）
@@ -532,7 +635,18 @@ def main():
                         process_executor.submit(process_single_db, arg)
                         for arg in task_args
                     ]
-                    results = [f.result() for f in as_completed(futures)]
+                    results = []
+                    for f in as_completed(futures):
+                        if _interrupted:
+                            # 中断時は残りのタスクをキャンセル
+                            for future in futures:
+                                future.cancel()
+                            break
+                        try:
+                            results.append(f.result())
+                        except Exception as e:
+                            print(f"    ⚠️  並列処理エラー: {str(e)}")
+                            results.append(False)
 
                 if any(results):
                     total_added += 1
@@ -540,10 +654,17 @@ def main():
                     total_skipped += 1
 
     finally:
+        # シグナルハンドラをリセット
+        signal.signal(signal.SIGINT, signal.SIG_DFL)
+
         # Executorをクリーンアップ
         if thread_executor:
+            if _interrupted:
+                print("   並列処理を終了しています...")
             thread_executor.shutdown(wait=True)
         if process_executor:
+            if _interrupted:
+                print("   並列処理を終了しています...")
             process_executor.shutdown(wait=True)
 
     # 結果サマリー
@@ -552,11 +673,16 @@ def main():
     print("=" * 60)
     print(f"   新規登録: {total_added} 曲")
     print(f"   スキップ: {total_skipped} 曲（登録済み）")
+    if _interrupted and _total_files > 0:
+        print(f"   中断: {_total_files - _processing_count} ファイル（未処理）")
 
     for db, _, mode in dbs_and_extractors:
         print(f"   DB ({mode}): {db.count()} 曲")
 
-    print("\n✅ 完了！")
+    if _interrupted:
+        print("\n⚠️  処理が中断されました")
+    else:
+        print("\n✅ 完了！")
 
 
 if __name__ == "__main__":

@@ -10,13 +10,14 @@ import pandas as pd
 from pathlib import Path
 
 from core.db_manager import SongVectorDB
+from config import DB_CONFIGS
 
 # ========== 設定 ==========
 # 同期するDB（全て同じ内容を保持）
 DB_PATHS = {
-    "Full": "data/chroma_db_cos_full",
-    "Balance": "data/chroma_db_cos_balance",
-    "Minimal": "data/chroma_db_cos_minimal",
+    "Full": "songs_full",
+    "Balance": "songs_balanced",
+    "Minimal": "songs_minimal",
 }
 
 # ========== ユーティリティ関数 ==========
@@ -52,8 +53,8 @@ def delete_songs(song_ids: list[str]) -> tuple[int, list[str]]:
     for song_id in song_ids:
         try:
             # 全DBから削除（Full/Balance/Minimal）
-            for db_path in DB_PATHS.values():
-                db = SongVectorDB(db_path=db_path, distance_fn="cosine")
+            for collection_name in DB_PATHS.values():
+                db = SongVectorDB(collection_name=collection_name, distance_fn="cosine")
                 db.delete_song(song_id)
             success_count += 1
         except Exception as e:
@@ -93,11 +94,11 @@ def main():
         index=0,
     )
 
-    db_path = available_dbs[selected_db_name]
+    collection_name = available_dbs[selected_db_name]
 
     # DBを初期化
     try:
-        db = SongVectorDB(db_path=db_path, distance_fn="cosine")
+        db = SongVectorDB(collection_name=collection_name, distance_fn="cosine")
         total_count = db.count()
     except Exception as e:
         st.error(f"DB初期化エラー: {e}")

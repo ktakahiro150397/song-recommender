@@ -76,10 +76,12 @@ def style_distance_column(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ========== 設定 ==========
+from config import DB_CONFIGS
+
 DB_PATHS = {
-    "Full": "data/chroma_db_cos_full",
-    "Balance": "data/chroma_db_cos_balance",
-    "Minimal": "data/chroma_db_cos_minimal",
+    "Full": "songs_full",
+    "Balance": "songs_balanced",
+    "Minimal": "songs_minimal",
 }
 
 # ========== ユーティリティ関数 ==========
@@ -143,8 +145,8 @@ if "playlist_creating" not in st.session_state:
 # サイドバー設定
 st.sidebar.header("検索設定")
 
-# DB選択
-available_dbs = {name: path for name, path in DB_PATHS.items() if Path(path).exists()}
+# DB選択（リモートChromaDBサーバーを使用するため、ファイル存在チェックは不要）
+available_dbs = DB_PATHS  # すべてのDBを利用可能として扱う
 
 if not available_dbs:
     st.error("利用可能なDBが見つかりません。")
@@ -155,8 +157,8 @@ selected_db_name = st.sidebar.selectbox(
     options=list(available_dbs.keys()),
     index=0,
 )
-db_path = available_dbs[selected_db_name]
-db = SongVectorDB(db_path=db_path, distance_fn="cosine")
+collection_name = available_dbs[selected_db_name]
+db = SongVectorDB(collection_name=collection_name, distance_fn="cosine")
 
 # 検索結果の最大表示数
 max_results = st.sidebar.number_input(
@@ -243,13 +245,13 @@ if search_button or "last_keyword" in st.session_state:
             with st.spinner("類似曲を検索中..."):
                 # 3つのDBをそれぞれ初期化（正しいパスと名前の対応）
                 db_full = SongVectorDB(
-                    db_path="data/chroma_db_cos_full", distance_fn="cosine"
+                    collection_name="songs_full", distance_fn="cosine"
                 )
                 db_balance = SongVectorDB(
-                    db_path="data/chroma_db_cos_balance", distance_fn="cosine"
+                    collection_name="songs_balanced", distance_fn="cosine"
                 )
                 db_minimal = SongVectorDB(
-                    db_path="data/chroma_db_cos_minimal", distance_fn="cosine"
+                    collection_name="songs_minimal", distance_fn="cosine"
                 )
 
                 dbs = [
@@ -386,13 +388,13 @@ if search_button or "last_keyword" in st.session_state:
             with st.spinner("連鎖検索中..."):
                 # 全てのDBsを初期化（検索には全てのDBを使用）
                 db_full = SongVectorDB(
-                    db_path="data/chroma_db_cos_full", distance_fn="cosine"
+                    collection_name="songs_full", distance_fn="cosine"
                 )
                 db_balance = SongVectorDB(
-                    db_path="data/chroma_db_cos_balance", distance_fn="cosine"
+                    collection_name="songs_balanced", distance_fn="cosine"
                 )
                 db_minimal = SongVectorDB(
-                    db_path="data/chroma_db_cos_minimal", distance_fn="cosine"
+                    collection_name="songs_minimal", distance_fn="cosine"
                 )
 
                 dbs = [db_full, db_balance, db_minimal]

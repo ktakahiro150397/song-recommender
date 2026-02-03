@@ -202,11 +202,16 @@ if search_button or "last_keyword" in st.session_state:
     if matches:
         st.success(f"✅ {len(matches)}件見つかりました")
 
-        # データフレームとして表示（チェックボックス付き）
+        # 選択状態を初期化
+        if "selected_song_ids" not in st.session_state:
+            st.session_state.selected_song_ids = set()
+        
+        # データフレームとして表示（選択可能）
         df_data = []
         for idx, (song_id, metadata) in enumerate(matches, 1):
             df_data.append(
                 {
+                    "選択": song_id in st.session_state.selected_song_ids,
                     "No.": idx,
                     "ファイル名": song_id,
                     "source_dir": metadata.get("source_dir", "") if metadata else "",
@@ -218,25 +223,36 @@ if search_button or "last_keyword" in st.session_state:
 
         df = pd.DataFrame(df_data)
 
-        # チェックボックスで選択できるようにデータフレームを表示
-        event = st.dataframe(
-            df, 
-            use_container_width=True, 
+        # data_editorを使用してチェックボックス付きテーブルを表示
+        edited_df = st.data_editor(
+            df,
+            use_container_width=True,
             hide_index=True,
-            selection_mode="multi-row",
-            on_select="rerun",
+            disabled=["No.", "ファイル名", "source_dir", "registered_at"],
+            column_config={
+                "選択": st.column_config.CheckboxColumn(
+                    "選択",
+                    help="類似曲検索やプレイリスト作成に使用する曲を選択",
+                    default=False,
+                )
+            },
             key="search_results_table"
         )
         
-        # 選択された曲を取得
-        if event and hasattr(event, "selection") and event.selection.get("rows"):
-            selected_indices = event.selection["rows"]
-            st.session_state.selected_songs = [matches[idx][0] for idx in selected_indices]
+        # 選択された曲を更新
+        selected_songs = []
+        for idx, row in edited_df.iterrows():
+            if row["選択"]:
+                song_id, _ = matches[idx]
+                selected_songs.append(song_id)
+        
+        st.session_state.selected_songs = selected_songs
+        st.session_state.selected_song_ids = set(selected_songs)
         
         # 選択された曲を目立つように表示
         if st.session_state.selected_songs:
-            st.info(f"✨ **選択中の曲:** {len(st.session_state.selected_songs)}曲")
-            with st.expander("選択された曲を表示", expanded=False):
+            st.success(f"✨ **選択中の曲:** {len(st.session_state.selected_songs)}曲")
+            with st.expander("選択された曲を表示", expanded=True):
                 for idx, song in enumerate(st.session_state.selected_songs, 1):
                     st.write(f"{idx}. {song}")
 

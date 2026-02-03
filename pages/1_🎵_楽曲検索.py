@@ -201,6 +201,8 @@ if search_button or "last_keyword" in st.session_state:
 
     if matches:
         st.success(f"✅ {len(matches)}件見つかりました")
+        
+        st.info("💡 **使い方:** 下の表で曲の左側にある「選択」列のチェックボックスをクリックして、類似曲検索やプレイリスト作成に使用する曲を選択してください。")
 
         # 選択状態を初期化
         if "selected_song_ids" not in st.session_state:

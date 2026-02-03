@@ -75,22 +75,37 @@ class SongVectorDB:
         )
         return results
 
-    def get_song(self, song_id: str, include_embedding: bool = True) -> dict | None:
+    def get_song(
+        self, song_id: str, include_embedding: bool = True, max_retries: int = 3
+    ) -> dict | None:
         """
         IDで楽曲を取得する
 
         Args:
             song_id: 楽曲ID
             include_embedding: embeddingを含めるか（デフォルトTrue）
+            max_retries: エラー時の最大リトライ回数
 
         Returns:
             楽曲情報（見つからない場合はNone）
         """
+        import time
+
         include = ["metadatas"]
         if include_embedding:
             include.append("embeddings")
 
-        result = self.collection.get(ids=[song_id], include=include)  # type: ignore
+        for attempt in range(max_retries):
+            try:
+                result = self.collection.get(ids=[song_id], include=include)  # type: ignore
+                break
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    time.sleep(0.5 * (attempt + 1))  # 指数バックオフ
+                    continue
+                # 最後のリトライでも失敗した場合はNoneを返す（未登録扱い）
+                print(f"Warning: Failed to get song '{song_id}' after {max_retries} retries: {e}")
+                return None
         if result["ids"]:
             # embeddingsの存在チェック（配列なのでNoneかどうかで判定）
             embeddings = result.get("embeddings")

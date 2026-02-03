@@ -297,9 +297,13 @@ def main():
                     print(f"\n    📁 {normalized_dir}/")
 
                 # いずれかのDBで登録済みならスキップ（最初のDBでチェック）
-                if dbs_and_extractors[0][0].get_song(song_id=filename) is not None:
-                    total_skipped += 1
-                    continue
+                try:
+                    if dbs_and_extractors[0][0].get_song(song_id=filename) is not None:
+                        total_skipped += 1
+                        continue
+                except Exception as e:
+                    print(f"Warning: Error checking song '{filename}': {e}")
+                    # エラー時は登録を試みる（重複の場合はadd_song側でスキップされる）
 
                 print(f"Processing {file_path}...")
 

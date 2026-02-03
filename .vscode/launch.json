@@ -13,6 +13,14 @@
             "args": ["--test"],
             "console": "integratedTerminal",
             "justMyCode": false
+        },
+        {
+            "name": "Python Debugger: create_dl_script_from_yt",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/create_dl_script_from_yt.py",
+            "args": ["--url","UC8p5DuhOMR7fZLgnybVX0sA"],
+            "console": "integratedTerminal"
         }
     ]
 }

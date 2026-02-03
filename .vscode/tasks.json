@@ -84,18 +84,6 @@
                 "reveal": "always",
                 "panel": "new"
             }
-        },
-        {
-            "label": "Register Songs from YouTube Queue",
-            "type": "shell",
-            "command": "uv",
-            "args": ["run", "register_songs.py", "--youtube-queue"],
-            "group": "build",
-            "problemMatcher": [],
-            "presentation": {
-                "reveal": "always",
-                "panel": "new"
-            }
         }
     ],
     "inputs": [

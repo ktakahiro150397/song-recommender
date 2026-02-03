@@ -34,7 +34,8 @@ class ChannelDB:
                     channel_id TEXT NOT NULL,
                     channel_name TEXT,
                     thumbnail_url TEXT,
-                    registered_at TIMESTAMP NOT NULL
+                    registered_at TIMESTAMP NOT NULL,
+                    output_count INTEGER DEFAULT 0
                 )
             """
             )
@@ -51,6 +52,15 @@ class ChannelDB:
                 ON youtube_channels(channel_id)
             """
             )
+
+            # 既存のテーブルにoutput_count列が存在しない場合は追加
+            cursor = conn.execute("PRAGMA table_info(youtube_channels)")
+            columns = [row[1] for row in cursor.fetchall()]
+            if "output_count" not in columns:
+                conn.execute(
+                    "ALTER TABLE youtube_channels ADD COLUMN output_count INTEGER DEFAULT 0"
+                )
+
             conn.commit()
 
     @staticmethod
@@ -188,7 +198,7 @@ class ChannelDB:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute(
                 """
-                SELECT id, url, channel_id, channel_name, thumbnail_url, registered_at 
+                SELECT id, url, channel_id, channel_name, thumbnail_url, registered_at, output_count 
                 FROM youtube_channels 
                 ORDER BY registered_at DESC
             """
@@ -273,3 +283,81 @@ class ChannelDB:
 
         except Exception as e:
             return False, f"更新エラー: {str(e)}"
+
+    def increment_output_count(self, channel_id: str) -> tuple[bool, str]:
+        """
+        DLスクリプト出力回数をインクリメントする
+
+        Args:
+            channel_id: チャンネルID (UCから始まるもの)
+
+        Returns:
+            (成功/失敗, メッセージ) のタプル
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.execute(
+                    "UPDATE youtube_channels SET output_count = output_count + 1 WHERE channel_id = ?",
+                    (channel_id,),
+                )
+                conn.commit()
+
+                if cursor.rowcount > 0:
+                    # 更新後のカウントを取得
+                    cursor = conn.execute(
+                        "SELECT output_count FROM youtube_channels WHERE channel_id = ?",
+                        (channel_id,),
+                    )
+                    count = cursor.fetchone()[0]
+                    return True, f"出力回数を更新しました (現在: {count}回目)"
+                else:
+                    return False, "指定されたチャンネルが見つかりません"
+
+        except Exception as e:
+            return False, f"更新エラー: {str(e)}"
+
+    def get_channel_by_id(self, channel_id: str) -> Optional[dict]:
+        """
+        チャンネルIDでチャンネル情報を取得する
+
+        Args:
+            channel_id: チャンネルID (UCから始まるもの)
+
+        Returns:
+            チャンネル情報（見つからない場合はNone）
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute(
+                """
+                SELECT id, url, channel_id, channel_name, thumbnail_url, registered_at, output_count 
+                FROM youtube_channels 
+                WHERE channel_id = ?
+            """,
+                (channel_id,),
+            )
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def get_channels_with_zero_output(self, output_count: int = 0) -> list[dict]:
+        """
+        指定したoutput_countのチャンネルを取得する
+
+        Args:
+            output_count: 取得するoutput_countの値（デフォルト: 0）
+
+        Returns:
+            チャンネル情報のリスト
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute(
+                """
+                SELECT id, url, channel_id, channel_name, thumbnail_url, registered_at, output_count 
+                FROM youtube_channels 
+                WHERE output_count = ?
+                ORDER BY registered_at DESC
+            """,
+                (output_count,),
+            )
+            return [dict(row) for row in cursor.fetchall()]

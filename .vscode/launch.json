@@ -19,7 +19,7 @@
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/create_dl_script_from_yt.py",
-            "args": ["--url","UC8p5DuhOMR7fZLgnybVX0sA"],
+            "args": ["--url","UC8N92Ar6y9OpuXbtpiSL2dg"],
             "console": "integratedTerminal"
         }
     ]

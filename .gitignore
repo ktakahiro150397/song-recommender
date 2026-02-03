@@ -183,4 +183,5 @@ pyrightconfig.json
 # End of https://www.toptal.com/developers/gitignore/api/python
 
 browser.json
-output_scripts/data/chroma_db_*
+output_scripts/
+data/chroma_db_*/**

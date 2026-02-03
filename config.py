@@ -18,6 +18,13 @@ DB_CONFIGS = [
     {"path": "data/chroma_db_cos_full", "mode": "full"},
 ]
 
+# DB パス（連鎖検索等で使用）
+DB_PATHS = [
+    "data/chroma_db_cos_full",
+    "data/chroma_db_cos_balance",
+    "data/chroma_db_cos_minimal",
+]
+
 # ========== 音声処理設定 ==========
 
 # 音声抽出時間（秒）

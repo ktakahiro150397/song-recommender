@@ -23,11 +23,7 @@ DEFAULT_PLAYLIST_NAME = "曲調リコメンドプレイリスト"
 DEFAULT_N_SONGS = 30
 
 # 使用するDB
-DB_PATHS = [
-    "data/chroma_db_cos_full",
-    "data/chroma_db_cos_balance",
-    "data/chroma_db_cos_minimal",
-]
+from config import DB_PATHS
 
 # YouTube Music設定
 BROWSER_FILE = "browser.json"

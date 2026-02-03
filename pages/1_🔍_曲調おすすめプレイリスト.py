@@ -16,7 +16,6 @@ from create_playlist_from_chain import (
     filename_to_query,
     DB_PATHS,
     BROWSER_FILE,
-    PRIVACY,
 )
 from core.db_manager import SongVectorDB
 from core.ytmusic_manager import YTMusicManager
@@ -24,11 +23,12 @@ from core.ytmusic_manager import YTMusicManager
 
 # ========== ユーティリティ関数 ==========
 
+
 def get_distance_color_html(distance: float) -> str:
     """距離に応じてHTML色を返す（緑→黄→赤）"""
     if distance == 0:
         return "color: #808080"  # グレー（起点曲）
-    
+
     ratio = min(distance / 0.01, 1.0)
     if ratio < 0.5:
         r = int(255 * (ratio * 2))
@@ -42,6 +42,7 @@ def get_distance_color_html(distance: float) -> str:
 
 def style_distance_column(df: pd.DataFrame) -> pd.DataFrame:
     """距離列に色付けスタイルを適用（背景色付き）"""
+
     def color_distance(val):
         if val == "-":
             return "background-color: #f0f0f0; color: #666; font-weight: bold"
@@ -62,7 +63,7 @@ def style_distance_column(df: pd.DataFrame) -> pd.DataFrame:
             return f"background-color: #{bg_r:02x}{bg_g:02x}{bg_b:02x}; color: #{r:02x}{g:02x}{b:02x}; font-weight: bold"
         except:
             return ""
-    
+
     # 距離列にのみスタイルを適用
     styled = df.style.applymap(color_distance, subset=["距離"])
     return styled
@@ -79,16 +80,21 @@ st.set_page_config(
 st.title("🔍 曲調おすすめプレイリスト")
 st.caption("楽曲から似た曲を連鎖的に検索してプレイリストを作成")
 
+# セッション状態の初期化
+if "chain_results" not in st.session_state:
+    st.session_state.chain_results = None
+if "selected_song" not in st.session_state:
+    st.session_state.selected_song = None
+if "playlist_creating" not in st.session_state:
+    st.session_state.playlist_creating = False
+
 # サイドバー設定
 st.sidebar.header("検索設定")
 
 # DB選択
 available_dbs = {
     name: path
-    for name, path in zip(
-        ["Full", "Balance", "Minimal"],
-        DB_PATHS
-    )
+    for name, path in zip(["Full", "Balance", "Minimal"], DB_PATHS)
     if Path(path).exists()
 }
 
@@ -139,14 +145,16 @@ if keyword:
             )
             auto_search = False
 
-        if auto_search or st.button("🔍 曲調おすすめプレイリスト検索を実行", type="primary"):
+        if auto_search or st.button(
+            "🔍 曲調おすすめプレイリスト検索を実行", type="primary"
+        ):
             with st.spinner("曲調おすすめプレイリスト検索中..."):
                 # DBsを初期化
                 dbs = [
-                    SongVectorDB(db_path=path, distance_fn="cosine") 
+                    SongVectorDB(db_path=path, distance_fn="cosine")
                     for path in DB_PATHS
                 ]
-                
+
                 # 既存の関数を使用
                 chain_results = chain_search_to_list(
                     start_filename=selected_song,
@@ -154,43 +162,67 @@ if keyword:
                     n_songs=n_songs,
                 )
 
+                # セッション状態に保存
+                st.session_state.chain_results = chain_results
+                st.session_state.selected_song = selected_song
+
+        # 検索結果があれば表示（セッション状態から取得）
+        if st.session_state.chain_results is not None:
+            chain_results = st.session_state.chain_results
+            selected_song_display = st.session_state.selected_song
+
             # 結果表示
             st.success(f"✅ {len(chain_results)}曲を検索しました")
 
             # データフレームとして表示（距離とメタデータも含む）
             df_data = []
             for idx, (song_id, distance, metadata) in enumerate(chain_results, 1):
-                df_data.append({
-                    "No.": idx,
-                    "ファイル名": song_id,
-                    "距離": f"{distance:.6f}" if distance > 0 else "-",
-                    "source_dir": metadata.get("source_dir", "") if metadata else "",
-                    "filename": metadata.get("filename", "") if metadata else "",
-                })
+                df_data.append(
+                    {
+                        "No.": idx,
+                        "ファイル名": song_id,
+                        "距離": f"{distance:.6f}" if distance > 0 else "-",
+                        "source_dir": (
+                            metadata.get("source_dir", "") if metadata else ""
+                        ),
+                        "filename": metadata.get("filename", "") if metadata else "",
+                    }
+                )
 
             df = pd.DataFrame(df_data)
-            
+
             # 距離列に色付けを適用して表示
             styled_df = style_distance_column(df)
             st.dataframe(styled_df, use_container_width=True, hide_index=True)
 
             # 起点曲名称（videoIdと拡張子を除去）
-            start_song_name = re.sub(r"\s*\[.*?\]\.(wav|mp3)$", "", selected_song)
+            start_song_name = re.sub(
+                r"\s*\[.*?\]\.(wav|mp3)$", "", selected_song_display
+            )
 
             # プレイリスト作成セクション
             st.divider()
             st.subheader("📝 プレイリスト作成")
-            
+
             playlist_name = st.text_input(
                 "プレイリスト名",
                 value=f"曲調おすすめプレイリスト / {start_song_name}",
+                key="playlist_name_input",
             )
 
-            if st.button("🎵 YouTube Musicプレイリスト作成"):
+            # プレイリスト作成ボタンのコールバック関数
+            def start_playlist_creation():
+                st.session_state.playlist_creating = True
+
+            # プレイリスト作成中の場合
+            if st.session_state.playlist_creating:
                 if not Path(BROWSER_FILE).exists():
                     st.error(f"❌ {BROWSER_FILE} が見つかりません")
+                    st.session_state.playlist_creating = False
                 else:
-                    with st.spinner("プレイリスト作成中..."):
+                    with st.spinner(
+                        "🎵 プレイリスト作成中...YouTube Musicで曲を検索しています"
+                    ):
                         try:
                             ytmusic = YTMusicManager(browser_file=BROWSER_FILE)
 
@@ -203,14 +235,18 @@ if keyword:
 
                             for idx, (song_id, _, metadata) in enumerate(chain_results):
                                 # ファイル名とmetadataから検索クエリを生成
-                                source_dir = metadata.get("source_dir", "") if metadata else ""
+                                source_dir = (
+                                    metadata.get("source_dir", "") if metadata else ""
+                                )
                                 query = filename_to_query(song_id, source_dir)
 
-                                status_text.text(f"検索中: {query}")
+                                status_text.text(
+                                    f"検索中 ({idx + 1}/{len(chain_results)}): {query}"
+                                )
 
-                                results = ytmusic.search_songs(query, limit=1)
-                                if results:
-                                    video_ids.append(results[0]["videoId"])
+                                result = ytmusic.search_video_id(query)
+                                if result and result.get("videoId"):
+                                    video_ids.append(result["videoId"])
                                     success_count += 1
 
                                 progress_bar.progress((idx + 1) / len(chain_results))
@@ -222,18 +258,30 @@ if keyword:
                                 playlist_id = ytmusic.create_playlist(
                                     playlist_name,
                                     f"曲調おすすめプレイリスト検索結果 ({len(video_ids)}曲)",
-                                    privacy=PRIVACY,
+                                    privacy="PUBLIC",
                                     video_ids=video_ids,
                                 )
 
                                 st.success(
                                     f"✅ プレイリスト作成完了！ ({success_count}/{len(chain_results)}曲)"
                                 )
-                                st.info(f"🔗 Playlist ID: {playlist_id}")
+                                playlist_url = f"https://music.youtube.com/playlist?list={playlist_id}"
+                                st.markdown(
+                                    f"🔗 **プレイリストURL:** [{playlist_url}]({playlist_url})"
+                                )
                             else:
                                 st.error("❌ 曲が見つかりませんでした")
 
                         except Exception as e:
                             st.error(f"❌ エラー: {str(e)}")
+                        finally:
+                            st.session_state.playlist_creating = False
+            else:
+                # プレイリスト作成ボタン
+                st.button(
+                    "🎵 YouTube Musicプレイリスト作成",
+                    on_click=start_playlist_creation,
+                    type="primary",
+                )
     else:
         st.warning("該当する楽曲が見つかりませんでした")

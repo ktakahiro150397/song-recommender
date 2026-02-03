@@ -13,6 +13,7 @@ from core.db_manager import SongVectorDB
 
 # ========== ユーティリティ関数 ==========
 
+
 def style_distance_value(val):
     """距離の値に色付けスタイルを返す（個別の値用）"""
     if val == "-":
@@ -35,8 +36,10 @@ def style_distance_value(val):
     except:
         return ""
 
+
 def style_distance_column(df: pd.DataFrame) -> pd.DataFrame:
     """距離列に色付けスタイルを適用（背景色付き）"""
+
     def color_distance(val):
         if val == "-":
             return "background-color: #f0f0f0; color: #666; font-weight: bold"
@@ -57,10 +60,11 @@ def style_distance_column(df: pd.DataFrame) -> pd.DataFrame:
             return f"background-color: #{bg_r:02x}{bg_g:02x}{bg_b:02x}; color: #{r:02x}{g:02x}{b:02x}; font-weight: bold"
         except:
             return ""
-    
+
     # 距離列にのみスタイルを適用
     styled = df.style.applymap(color_distance, subset=["距離"])
     return styled
+
 
 # ========== 設定 ==========
 DB_PATHS = {
@@ -72,14 +76,16 @@ DB_PATHS = {
 # ========== ユーティリティ関数 ==========
 
 
-def find_song_by_keyword_with_metadata(db: SongVectorDB, keyword: str = "", limit: int = 100) -> list[tuple[str, dict]]:
+def find_song_by_keyword_with_metadata(
+    db: SongVectorDB, keyword: str = "", limit: int = 100
+) -> list[tuple[str, dict]]:
     """キーワードで部分一致検索（メタデータ付き）
-    
+
     Args:
         db: データベースインスタンス
         keyword: 検索キーワード（空文字列の場合は全件取得）
         limit: 最大取得件数
-    
+
     Returns:
         (song_id, metadata)のタプルのリスト
     """
@@ -90,9 +96,13 @@ def find_song_by_keyword_with_metadata(db: SongVectorDB, keyword: str = "", limi
     for idx, song_id in enumerate(all_songs["ids"]):
         metadata = all_songs["metadatas"][idx] if all_songs["metadatas"] else {}
         source_dir = metadata.get("source_dir", "").lower()
-        
+
         # キーワードが空の場合は全件マッチ、それ以外はIDまたはsource_dirで検索
-        if not keyword or keyword_lower in song_id.lower() or keyword_lower in source_dir:
+        if (
+            not keyword
+            or keyword_lower in song_id.lower()
+            or keyword_lower in source_dir
+        ):
             matches.append((song_id, metadata))
             if len(matches) >= limit:
                 break
@@ -115,9 +125,7 @@ st.caption("キーワードで楽曲を検索して類似曲を表示")
 st.sidebar.header("検索設定")
 
 # DB選択
-available_dbs = {
-    name: path for name, path in DB_PATHS.items() if Path(path).exists()
-}
+available_dbs = {name: path for name, path in DB_PATHS.items() if Path(path).exists()}
 
 if not available_dbs:
     st.error("利用可能なDBが見つかりません。")
@@ -141,7 +149,6 @@ max_results = st.sidebar.number_input(
 )
 
 
-
 # メインコンテンツ
 st.subheader("🔍 楽曲検索")
 
@@ -159,10 +166,15 @@ with col2:
 if search_button or "last_keyword" in st.session_state:
     # キーワードが空でも検索可能にする
     current_keyword = keyword if keyword else ""
-    
-    if "last_keyword" not in st.session_state or st.session_state.last_keyword != current_keyword:
+
+    if (
+        "last_keyword" not in st.session_state
+        or st.session_state.last_keyword != current_keyword
+    ):
         st.session_state.last_keyword = current_keyword
-        st.session_state.matches = find_song_by_keyword_with_metadata(db, current_keyword, limit=10000)
+        st.session_state.matches = find_song_by_keyword_with_metadata(
+            db, current_keyword, limit=10000
+        )
 
     matches = st.session_state.matches
 
@@ -172,15 +184,19 @@ if search_button or "last_keyword" in st.session_state:
         # データフレームとして表示
         df_data = []
         for idx, (song_id, metadata) in enumerate(matches, 1):
-            df_data.append({
-                "No.": idx,
-                "ファイル名": song_id,
-                "source_dir": metadata.get("source_dir", "") if metadata else "",
-                "registered_at": metadata.get("registered_at", "") if metadata else "",
-            })
+            df_data.append(
+                {
+                    "No.": idx,
+                    "ファイル名": song_id,
+                    "source_dir": metadata.get("source_dir", "") if metadata else "",
+                    "registered_at": (
+                        metadata.get("registered_at", "") if metadata else ""
+                    ),
+                }
+            )
 
         df = pd.DataFrame(df_data)
-        
+
         # データフレーム表示
         st.dataframe(df, use_container_width=True, hide_index=True)
 
@@ -206,34 +222,36 @@ if search_button or "last_keyword" in st.session_state:
 
         if st.button("🔍 類似曲を検索", type="secondary"):
             with st.spinner("類似曲を検索中..."):
-                from create_playlist_from_chain import DB_PATHS
-                
+                from config import DB_PATHS
+
                 # 3つのDBをそれぞれ初期化
                 db_full = SongVectorDB(db_path=DB_PATHS[0], distance_fn="cosine")
                 db_balance = SongVectorDB(db_path=DB_PATHS[1], distance_fn="cosine")
                 db_minimal = SongVectorDB(db_path=DB_PATHS[2], distance_fn="cosine")
-                
+
                 dbs = [
                     ("Full", db_full),
                     ("Balance", db_balance),
                     ("Minimal", db_minimal),
                 ]
-                
+
                 # 各DBから類似曲を検索
                 all_results = {}
                 for db_name, db_instance in dbs:
-                    song_data = db_instance.get_song(selected_song, include_embedding=True)
+                    song_data = db_instance.get_song(
+                        selected_song, include_embedding=True
+                    )
                     if song_data and "embedding" in song_data:
                         similar = db_instance.search_similar(
                             query_embedding=song_data["embedding"],
-                            n_results=n_results + 1  # 自分自身も含まれるので+1
+                            n_results=n_results + 1,  # 自分自身も含まれるので+1
                         )
                         # 自分自身を除外
                         filtered = []
                         for song_id, distance, metadata in zip(
                             similar["ids"][0],
                             similar["distances"][0],
-                            similar["metadatas"][0]
+                            similar["metadatas"][0],
                         ):
                             if song_id != selected_song:
                                 filtered.append((song_id, distance, metadata))
@@ -243,61 +261,77 @@ if search_button or "last_keyword" in st.session_state:
 
             # 各DBの結果を表示
             tabs = st.tabs(["📊 Full", "📊 Balance", "📊 Minimal"])
-            
+
             for idx, (db_name, results) in enumerate(all_results.items()):
                 with tabs[idx]:
                     if results:
                         result_data = []
-                        for rank, (song_id, distance, metadata) in enumerate(results, 1):
-                            result_data.append({
-                                "Rank": rank,
-                                "ファイル名": song_id,
-                                "距離": f"{distance:.6f}",
-                                "source_dir": metadata.get("source_dir", "") if metadata else "",
-                                "registered_at": metadata.get("registered_at", "") if metadata else "",
-                            })
-                        
+                        for rank, (song_id, distance, metadata) in enumerate(
+                            results, 1
+                        ):
+                            result_data.append(
+                                {
+                                    "Rank": rank,
+                                    "ファイル名": song_id,
+                                    "距離": f"{distance:.6f}",
+                                    "source_dir": (
+                                        metadata.get("source_dir", "")
+                                        if metadata
+                                        else ""
+                                    ),
+                                    "registered_at": (
+                                        metadata.get("registered_at", "")
+                                        if metadata
+                                        else ""
+                                    ),
+                                }
+                            )
+
                         result_df = pd.DataFrame(result_data)
                         # 距離列のカラム名を指定
                         styled_result_df = result_df.style.applymap(
-                            lambda val: style_distance_value(val),
-                            subset=["距離"]
+                            lambda val: style_distance_value(val), subset=["距離"]
                         )
-                        st.dataframe(styled_result_df, use_container_width=True, hide_index=True)
+                        st.dataframe(
+                            styled_result_df, use_container_width=True, hide_index=True
+                        )
                     else:
                         st.warning(f"{db_name}: 類似曲が見つかりませんでした")
-            
+
             # 距離の比較グラフ
             st.divider()
             st.subheader("📈 距離比較グラフ")
-            
+
             # データを整形
             chart_data = {}
             for db_name, results in all_results.items():
                 if results:
                     distances = [dist for _, dist, _ in results]
                     chart_data[db_name] = distances
-            
+
             # 折れ線グラフで比較
             if chart_data:
                 import pandas as pd
+
                 df_chart = pd.DataFrame(chart_data)
                 df_chart.index = df_chart.index + 1  # 1-indexed
                 df_chart.index.name = "Rank"
                 st.line_chart(df_chart, use_container_width=True)
-                
+
                 # 統計情報
                 st.divider()
                 st.subheader("📊 統計情報")
-                
+
                 col1, col2, col3 = st.columns(3)
-                for col, (db_name, results) in zip([col1, col2, col3], all_results.items()):
+                for col, (db_name, results) in zip(
+                    [col1, col2, col3], all_results.items()
+                ):
                     with col:
                         if results:
                             distances = [dist for _, dist, _ in results]
                             st.metric(
                                 f"{db_name} 平均距離",
-                                f"{sum(distances)/len(distances):.6f}"
+                                f"{sum(distances)/len(distances):.6f}",
                             )
                             st.caption(f"最小: {min(distances):.6f}")
                             st.caption(f"最大: {max(distances):.6f}")

@@ -28,6 +28,13 @@ services:
       start_period: 40s
     networks:
       - app-network
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    depends_on:
+      - song-recommender
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    networks:
+      - app-network
 networks:
   app-network:
     driver: bridge

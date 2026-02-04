@@ -76,6 +76,50 @@ class SongVectorDB:
             metadatas=[metadata] if metadata else None,
         )
 
+    def add_songs(
+        self,
+        song_ids: list[str],
+        embeddings: list[list[float]],
+        metadatas: list[dict] | None = None,
+    ) -> None:
+        """
+        複数の楽曲を一括でDBに登録する（バルクインサート）
+
+        Args:
+            song_ids: 楽曲IDのリスト
+            embeddings: 音声特徴量ベクトルのリスト
+            metadatas: 付加情報のリスト（オプション）
+        """
+        if not song_ids:
+            return
+
+        self.collection.add(
+            ids=song_ids,
+            embeddings=embeddings,
+            metadatas=metadatas if metadatas else None,
+        )
+
+    def get_songs(self, song_ids: list[str], include_embedding: bool = False) -> dict:
+        """
+        複数のIDで楽曲を一括取得する（バルククエリ）
+
+        Args:
+            song_ids: 楽曲IDのリスト
+            include_embedding: embeddingを含めるか（デフォルトFalse）
+
+        Returns:
+            楽曲情報の辞書（ids, embeddings, metadatas）
+        """
+        if not song_ids:
+            return {"ids": [], "embeddings": [], "metadatas": []}
+
+        include = ["metadatas"]
+        if include_embedding:
+            include.append("embeddings")
+
+        result = self.collection.get(ids=song_ids, include=include)  # type: ignore
+        return result
+
     def search_similar(self, query_embedding: list[float], n_results: int = 5) -> dict:
         """
         類似楽曲を検索する

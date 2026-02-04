@@ -2,11 +2,11 @@
 音声ファイルをベクトルDBに登録するスクリプト
 
 使い方:
-    uv run register_songs.py                  # デフォルト（直列処理）
-    uv run register_songs.py --parallel thread  # ThreadPool並列
-    uv run register_songs.py --parallel process # ProcessPool並列（CPU効率◎）
-    uv run register_songs.py -p process         # 短縮形
-    uv run register_songs.py --youtube-queue --parallel process  # YouTubeキューから処理
+    uv run register_songs.py                  # バッチ処理（デフォルト）
+    uv run register_songs.py --youtube-queue  # YouTubeキューから処理
+
+バッチ処理により、複数曲を一括でDBに登録することでネットワークリクエスト回数を削減し、
+リモートChromaDBへの登録速度を大幅に改善します。
 """
 
 import argparse
@@ -18,7 +18,6 @@ import sys
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
 from core.db_manager import SongVectorDB
 from core.feature_extractor import FeatureExtractor
 from core.song_queue_db import SongQueueDB
@@ -41,6 +40,9 @@ SOUND_DIRS = [
 
 # 音声抽出設定
 DURATION = 90  # 秒
+
+# バッチ処理設定
+BATCH_SIZE = 50  # 一度に登録する曲数（リモートDBのレイテンシ削減）
 
 
 # ========== シグナルハンドラ ==========
@@ -460,6 +462,78 @@ def add_song(
     return True
 
 
+def prepare_song_data(
+    extractor: FeatureExtractor,
+    file_path: str,
+    filename: str,
+    normalized_dir: str,
+) -> tuple[str, list[float], dict] | None:
+    """
+    1曲分のデータを準備する（バッチ処理用）
+
+    Args:
+        extractor: 特徴量抽出器
+        file_path: 実際のファイルパス
+        filename: ファイル名
+        normalized_dir: 正規化されたディレクトリパス
+
+    Returns:
+        (song_id, embedding, metadata) のタプル、または処理不要の場合はNone
+    """
+    # 対象の拡張子のみ処理
+    if not (filename.endswith(".wav") or filename.endswith(".mp3")):
+        return None
+
+    # 特徴量抽出
+    try:
+        embedding = extractor.extract_to_vector(file_path)
+    except Exception as e:
+        print(f"   ❌ 特徴量抽出エラー ({filename}): {str(e)}")
+        return None
+
+    # メタデータ構築
+    youtube_id = extract_youtube_id(filename)
+    song_title = extract_song_title(filename)
+    _, ext = os.path.splitext(filename)
+
+    metadata = {
+        "filename": filename,
+        "song_title": song_title,
+        "source_dir": normalized_dir,
+        "youtube_id": youtube_id,
+        "file_extension": ext.lower(),
+        "file_size_mb": get_file_size_mb(file_path),
+        "registered_at": datetime.now().isoformat(),
+    }
+
+    return (filename, embedding, metadata)
+
+
+def add_songs_batch(
+    db: SongVectorDB,
+    song_data_list: list[tuple[str, list[float], dict]],
+) -> int:
+    """
+    複数の曲を一括でDBに登録する（バルクインサート）
+
+    Args:
+        db: ベクトルDB
+        song_data_list: (song_id, embedding, metadata) のリスト
+
+    Returns:
+        登録した曲数
+    """
+    if not song_data_list:
+        return 0
+
+    song_ids = [data[0] for data in song_data_list]
+    embeddings = [data[1] for data in song_data_list]
+    metadatas = [data[2] for data in song_data_list]
+
+    db.add_songs(song_ids, embeddings, metadatas)
+    return len(song_data_list)
+
+
 def process_single_db(args: tuple) -> bool:
     """
     ProcessPoolExecutor用：1つのDBに対して特徴量抽出＆登録を行う
@@ -490,7 +564,7 @@ def main():
         type=str,
         choices=["none", "thread", "process"],
         default="none",
-        help="並列処理モード: none(直列), thread(ThreadPool), process(ProcessPool)",
+        help="並列処理モード: none(直列), thread(ThreadPool), process(ProcessPool) - 現在は使用されていません（後方互換性のため残しています）",
     )
     parser.add_argument(
         "--youtube-queue",
@@ -505,10 +579,9 @@ def main():
         process_youtube_queue(parallel_mode=args.parallel)
         return
 
-    parallel_mode = args.parallel
     print("=" * 60)
     print("🎵 音声ファイルをベクトルDBに登録")
-    print(f"   並列モード: {parallel_mode}")
+    print(f"   バッチサイズ: {BATCH_SIZE} 曲/バッチ")
     print("=" * 60)
 
     # DB・抽出器を初期化
@@ -535,14 +608,6 @@ def main():
     total_added = 0
     total_skipped = 0
 
-    # 並列処理用のExecutorを事前に作成（プール使い回し）
-    thread_executor = None
-    process_executor = None
-    if parallel_mode == "thread":
-        thread_executor = ThreadPoolExecutor(max_workers=len(DB_CONFIGS))
-    elif parallel_mode == "process":
-        process_executor = ProcessPoolExecutor(max_workers=len(DB_CONFIGS))
-
     # シグナルハンドラを設定
     global _interrupted, _processing_count, _total_files
     _interrupted = False
@@ -568,6 +633,9 @@ def main():
             current_dir = None
             _total_files = len(audio_files)
 
+            # バッチ処理用の一時リスト
+            batch_files = []
+
             for idx, (file_path, filename, normalized_dir) in enumerate(audio_files, 1):
                 # 中断フラグをチェック
                 if _interrupted:
@@ -581,91 +649,63 @@ def main():
                     current_dir = normalized_dir
                     print(f"\n    📁 {normalized_dir}/")
 
-                # いずれかのDBで登録済みならスキップ（最初のDBでチェック）
-                try:
-                    if dbs_and_extractors[0][0].get_song(song_id=filename) is not None:
-                        total_skipped += 1
-                        continue
-                except Exception as e:
-                    print(f"Warning: Error checking song '{filename}': {e}")
-                    # エラー時は登録を試みる（重複の場合はadd_song側でスキップされる）
+                batch_files.append((file_path, filename, normalized_dir))
 
-                print(f"Processing {file_path}...")
+                # バッチサイズに達したか、最後のファイルの場合に処理
+                if len(batch_files) >= BATCH_SIZE or idx == len(audio_files):
+                    # バッチ内のファイル名リストを取得
+                    batch_filenames = [f[1] for f in batch_files]
 
-                if parallel_mode == "none":
-                    # 直列処理
-                    added = False
-                    for db, extractor, mode in dbs_and_extractors:
-                        if add_song(db, extractor, file_path, filename, normalized_dir):
-                            added = True
-                    results = [added]
+                    # 既存チェック（バルククエリ）
+                    existing_result = dbs_and_extractors[0][0].get_songs(
+                        batch_filenames, include_embedding=False
+                    )
+                    existing_ids = set(existing_result.get("ids", []))
 
-                elif parallel_mode == "thread":
-                    # ThreadPool並列（GILあり、I/O向け）
-                    def process_for_db(db_ext_mode):
-                        db, extractor, mode = db_ext_mode
-                        return add_song(
-                            db, extractor, file_path, filename, normalized_dir
+                    # 未登録のファイルのみ処理
+                    files_to_process = [
+                        f for f in batch_files if f[1] not in existing_ids
+                    ]
+
+                    skipped_count = len(batch_files) - len(files_to_process)
+                    total_skipped += skipped_count
+
+                    if files_to_process:
+                        print(
+                            f"    バッチ処理中... ({len(files_to_process)} 曲、{skipped_count} 曲スキップ)"
                         )
 
-                    futures = [
-                        thread_executor.submit(process_for_db, item)
-                        for item in dbs_and_extractors
-                    ]
-                    results = []
-                    for f in as_completed(futures):
-                        if _interrupted:
-                            # 中断時は残りのタスクをキャンセル
-                            for future in futures:
-                                future.cancel()
-                            break
-                        try:
-                            results.append(f.result())
-                        except Exception as e:
-                            print(f"    ⚠️  並列処理エラー: {str(e)}")
-                            results.append(False)
+                        # 各DBに対してバッチ登録
+                        for db, extractor, mode in dbs_and_extractors:
+                            batch_data = []
+                            for file_path, filename, normalized_dir in files_to_process:
+                                song_data = prepare_song_data(
+                                    extractor, file_path, filename, normalized_dir
+                                )
+                                if song_data:
+                                    batch_data.append(song_data)
 
-                elif parallel_mode == "process":
-                    # ProcessPool並列（GIL回避、CPU向け）
-                    task_args = [
-                        (config, file_path, filename, normalized_dir, DURATION)
-                        for config in DB_CONFIGS
-                    ]
-                    futures = [
-                        process_executor.submit(process_single_db, arg)
-                        for arg in task_args
-                    ]
-                    results = []
-                    for f in as_completed(futures):
-                        if _interrupted:
-                            # 中断時は残りのタスクをキャンセル
-                            for future in futures:
-                                future.cancel()
-                            break
-                        try:
-                            results.append(f.result())
-                        except Exception as e:
-                            print(f"    ⚠️  並列処理エラー: {str(e)}")
-                            results.append(False)
+                            if batch_data:
+                                try:
+                                    added_count = add_songs_batch(db, batch_data)
+                                    if (
+                                        mode == dbs_and_extractors[0][2]
+                                    ):  # 最初のDBのみカウント
+                                        total_added += added_count
+                                    print(f"    ✅ {mode} DB に {added_count} 曲登録")
+                                except Exception as e:
+                                    print(
+                                        f"    ❌ {mode} DB バッチ登録エラー: {str(e)}"
+                                    )
+                    else:
+                        print(f"    すべて登録済み ({skipped_count} 曲スキップ)")
 
-                if any(results):
-                    total_added += 1
-                else:
-                    total_skipped += 1
+                    # バッチをクリア
+                    batch_files = []
 
     finally:
         # シグナルハンドラをリセット
         signal.signal(signal.SIGINT, signal.SIG_DFL)
-
-        # Executorをクリーンアップ
-        if thread_executor:
-            if _interrupted:
-                print("   並列処理を終了しています...")
-            thread_executor.shutdown(wait=True)
-        if process_executor:
-            if _interrupted:
-                print("   並列処理を終了しています...")
-            process_executor.shutdown(wait=True)
 
     # 結果サマリー
     print("\n" + "=" * 60)

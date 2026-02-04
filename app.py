@@ -96,7 +96,7 @@ with col4:
     )
 
 # データベース詳細情報（展開可能）
-with st.expander("🔍 データベース詳細情報"):
+with st.expander("🔍 データベース詳細情報", expanded=True):
     st.markdown("### ベクトルデータベース")
     st.markdown("""
     楽曲の音声特徴量を3つの異なるモードで保存しています：
@@ -139,7 +139,7 @@ with st.expander("🔍 データベース詳細情報"):
         st.info("キューにデータがありません")
 
 # 音声特徴量の統計情報（サンプリング）
-with st.expander("🎼 音声特徴量の統計情報"):
+with st.expander("🎼 音声特徴量の統計情報", expanded=True):
     st.markdown("""
     データベースに登録されている楽曲の音声特徴量を分析しています。
     これにより、コレクション全体の傾向（明るさ、テンポ、音色など）がわかります。

@@ -5,6 +5,7 @@
 """
 
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 from datetime import datetime
 from core.channel_db import ChannelDB
@@ -34,6 +35,40 @@ if not channels:
     st.info("📭 まだチャンネルが登録されていません")
     st.markdown("「YouTubeチャンネル登録」ページからチャンネルを登録してください")
 else:
+    # エクスポート機能
+    st.markdown("### 💾 データエクスポート")
+
+    col_export1, col_export2 = st.columns(2)
+
+    with col_export1:
+        if st.button("📄 CSV形式でダウンロード", use_container_width=True):
+            if channels:
+                # DataFrameに変換
+                df = pd.DataFrame(channels)
+                csv = df.to_csv(index=False, encoding="utf-8-sig")
+
+                st.download_button(
+                    label="⬇️ CSVファイルをダウンロード",
+                    data=csv,
+                    file_name=f"youtube_channels_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                )
+            else:
+                st.warning("エクスポートするデータがありません")
+
+    with col_export2:
+        if st.button("📋 URLリストをコピー", use_container_width=True):
+            if channels:
+                # URLのみを抽出してテキスト形式に
+                url_list = "\n".join([ch["url"] for ch in channels])
+                st.code(url_list, language="text")
+                st.info("上記のテキストをコピーしてご利用ください")
+            else:
+                st.warning("コピーするデータがありません")
+
+    st.markdown("---")
+
     # 統計情報を表示
     st.markdown(f"### 📊 統計情報")
     col1, col2, col3 = st.columns(3)
@@ -95,32 +130,24 @@ else:
     if not filtered_channels:
         st.warning("検索条件に一致するチャンネルがありません")
     else:
-        # ページネーション設定
+        # 無限スクロール設定
         items_per_page = 10
-        total_pages = (len(filtered_channels) - 1) // items_per_page + 1
 
-        # ページ番号選択（上部）
-        if total_pages > 1:
-            page_top = st.number_input(
-                "ページ",
-                min_value=1,
-                max_value=total_pages,
-                value=1,
-                step=1,
-                help=f"全{total_pages}ページ",
-                key="page_top",
-            )
-            page = page_top
-        else:
-            page = 1
+        # セッションステートの初期化（検索条件が変わったらリセット）
+        current_search_key = f"{search_query}_{sort_order}"
+        if (
+            "last_search_key" not in st.session_state
+            or st.session_state.last_search_key != current_search_key
+        ):
+            st.session_state.items_to_show = items_per_page
+            st.session_state.last_search_key = current_search_key
 
         # 表示範囲を計算
-        start_idx = (page - 1) * items_per_page
-        end_idx = min(start_idx + items_per_page, len(filtered_channels))
-        page_channels = filtered_channels[start_idx:end_idx]
+        end_idx = min(st.session_state.items_to_show, len(filtered_channels))
+        page_channels = filtered_channels[0:end_idx]
 
         # チャンネルをカード形式で表示
-        for i, channel in enumerate(page_channels, start=start_idx + 1):
+        for i, channel in enumerate(page_channels, start=1):
             with st.container():
                 # カード風デザイン（レスポンシブ対応）
                 card_col1, card_col2 = st.columns([1, 3])
@@ -247,44 +274,93 @@ else:
 
                 st.divider()
 
-        # ページネーション情報
-        if total_pages > 1:
-            st.caption(
-                f"ページ {page} / {total_pages} （{start_idx + 1}-{end_idx}件目を表示中）"
+        # 無限スクロール: 自動読み込み
+        if end_idx < len(filtered_channels):
+            remaining = len(filtered_channels) - end_idx
+
+            # ボタンを中央に配置
+            cols = st.columns([1, 2, 1])
+            with cols[1]:
+                load_more_clicked = st.button(
+                    f"📖 さらに{min(items_per_page, remaining)}件読み込む",
+                    type="primary",
+                    use_container_width=True,
+                    key="load_more_auto",
+                )
+
+                if load_more_clicked:
+                    st.session_state.items_to_show += items_per_page
+                    st.rerun()
+
+            # 自動読み込みトリガー用の不可視要素
+            st.markdown(
+                '<div id="load-more-trigger" style="height: 1px;"></div>',
+                unsafe_allow_html=True,
             )
 
-# エクスポート機能
-st.markdown("---")
-st.markdown("### 💾 データエクスポート")
-
-col_export1, col_export2 = st.columns(2)
-
-with col_export1:
-    if st.button("📄 CSV形式でダウンロード", use_container_width=True):
-        if channels:
-            # DataFrameに変換
-            df = pd.DataFrame(channels)
-            csv = df.to_csv(index=False, encoding="utf-8-sig")
-
-            st.download_button(
-                label="⬇️ CSVファイルをダウンロード",
-                data=csv,
-                file_name=f"youtube_channels_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                mime="text/csv",
-                use_container_width=True,
+            # 自動クリック用のJavaScript
+            # スクロールして要素が表示されたら自動的にボタンをクリック
+            components.html(
+                """
+                <script>
+                    let autoLoadTriggered = false;
+                    
+                    function autoClickLoadMore() {
+                        if (autoLoadTriggered) return;
+                        
+                        try {
+                            // 親ウィンドウのドキュメントにアクセス
+                            const parentDoc = window.parent.document;
+                            const trigger = parentDoc.getElementById('load-more-trigger');
+                            
+                            if (!trigger) {
+                                return;
+                            }
+                            
+                            // トリガー要素が画面内に表示されているかチェック
+                            const rect = trigger.getBoundingClientRect();
+                            const windowHeight = window.parent.innerHeight;
+                            const isVisible = rect.top >= 0 && rect.top < windowHeight;
+                            
+                            if (isVisible) {
+                                // "さらに読み込む"ボタンを探してクリック
+                                const buttons = parentDoc.querySelectorAll('button[kind="primary"]');
+                                for (let btn of buttons) {
+                                    const text = btn.textContent || '';
+                                    if (text.includes('さらに') && text.includes('件読み込む')) {
+                                        autoLoadTriggered = true;
+                                        btn.click();
+                                        break;
+                                    }
+                                }
+                            }
+                        } catch (e) {
+                            console.error('Auto-load error:', e);
+                        }
+                    }
+                    
+                    // 親ウィンドウのスクロールイベントを監視
+                    try {
+                        window.parent.addEventListener('scroll', autoClickLoadMore, { passive: true });
+                    } catch (e) {
+                        console.error('Failed to add scroll listener:', e);
+                    }
+                    
+                    // 定期的にチェック（フォールバック）
+                    setInterval(autoClickLoadMore, 500);
+                    
+                    // ページ読み込み後に初回チェック
+                    setTimeout(autoClickLoadMore, 800);
+                </script>
+                """,
+                height=0,
             )
-        else:
-            st.warning("エクスポートするデータがありません")
 
-with col_export2:
-    if st.button("📋 URLリストをコピー", use_container_width=True):
-        if channels:
-            # URLのみを抽出してテキスト形式に
-            url_list = "\n".join([ch["url"] for ch in channels])
-            st.code(url_list, language="text")
-            st.info("上記のテキストをコピーしてご利用ください")
+            st.caption(f"📄 残り{remaining}件 - スクロールすると自動的に読み込まれます")
         else:
-            st.warning("コピーするデータがありません")
+            st.success(
+                f"✅ すべてのチャンネル ({len(filtered_channels)}件) を表示しました"
+            )
 
 # フッター
 st.markdown("---")

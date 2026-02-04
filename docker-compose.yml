@@ -32,10 +32,9 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./data/chroma_data:/chroma/chroma
+      - ./data/chroma_data:/data
     environment:
       - IS_PERSISTENT=TRUE
-      - PERSIST_DIRECTORY=/chroma/chroma
       - ANONYMIZED_TELEMETRY=FALSE
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat" ]

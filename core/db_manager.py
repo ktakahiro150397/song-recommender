@@ -235,6 +235,45 @@ class SongVectorDB:
         """
         return self.collection.get(limit=limit)
 
+    def get_random_sample(self, sample_percentage: float = 0.05) -> dict:
+        """
+        データベースからランダムにサンプリングする
+
+        Args:
+            sample_percentage: サンプリング率（デフォルト: 0.05 = 5%）
+
+        Returns:
+            ランダムサンプリングされた楽曲一覧（ids, embeddings, metadatas）
+        """
+        import random
+
+        total_count = self.count()
+        if total_count == 0:
+            return {"ids": [], "embeddings": [], "metadatas": []}
+
+        # サンプルサイズを計算（最小10曲、最大1000曲）
+        sample_size = max(10, min(1000, int(total_count * sample_percentage)))
+
+        # 全曲を取得（limit=total_count）
+        all_songs = self.collection.get(limit=total_count, include=["embeddings", "metadatas"])
+
+        if not all_songs["ids"]:
+            return {"ids": [], "embeddings": [], "metadatas": []}
+
+        # ランダムにインデックスを選択
+        indices = list(range(len(all_songs["ids"])))
+        random.shuffle(indices)
+        sampled_indices = indices[:sample_size]
+
+        # サンプリングされたデータを抽出
+        sampled_data = {
+            "ids": [all_songs["ids"][i] for i in sampled_indices],
+            "embeddings": [all_songs["embeddings"][i] for i in sampled_indices] if all_songs.get("embeddings") else [],
+            "metadatas": [all_songs["metadatas"][i] for i in sampled_indices] if all_songs.get("metadatas") else [],
+        }
+
+        return sampled_data
+
 
 # ===== 動作確認用 =====
 if __name__ == "__main__":

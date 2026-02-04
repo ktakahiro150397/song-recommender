@@ -185,3 +185,4 @@ pyrightconfig.json
 browser.json
 output_scripts/
 data/chroma_db_*/**
+data/*

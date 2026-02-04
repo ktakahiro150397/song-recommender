@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 from typing import Literal, Tuple
 
 
-URLType = Literal["channel", "video", "unknown"]
+URLType = Literal["channel", "video", "playlist", "unknown"]
 
 
 class YouTubeURLDetector:
@@ -25,6 +25,28 @@ class YouTubeURLDetector:
         r"youtu\.be/([a-zA-Z0-9_-]{11})",
         r"youtube\.com/embed/([a-zA-Z0-9_-]{11})",
     ]
+
+    # プレイリストURL判定パターン
+    PLAYLIST_PATTERNS = [
+        r"[?&]list=([a-zA-Z0-9_-]+)",
+    ]
+
+    @classmethod
+    def extract_playlist_id(cls, url: str) -> str | None:
+        """
+        URLからプレイリストIDを抽出
+
+        Args:
+            url: YouTubeのURL
+
+        Returns:
+            プレイリストIDまたはNone
+        """
+        for pattern in cls.PLAYLIST_PATTERNS:
+            match = re.search(pattern, url)
+            if match:
+                return match.group(1)
+        return None
 
     @classmethod
     def detect(cls, url: str) -> Tuple[URLType, str]:
@@ -63,6 +85,11 @@ class YouTubeURLDetector:
                 if re.search(pattern, url):
                     return "channel", ""
 
+            # プレイリスト判定（動画判定より先に行う）
+            for pattern in cls.PLAYLIST_PATTERNS:
+                if re.search(pattern, url):
+                    return "playlist", ""
+
             # 動画判定
             for pattern in cls.VIDEO_PATTERNS:
                 if re.search(pattern, url):
@@ -74,7 +101,7 @@ class YouTubeURLDetector:
 
             return (
                 "unknown",
-                "未対応のURL形式です。チャンネルURL（/channel/UC...）または動画URL（watch?v=...）を入力してください",
+                "未対応のURL形式です。チャンネルURL（/channel/UC...）、動画URL（watch?v=...）、またはプレイリストURL（playlist?list=...）を入力してください",
             )
 
         except Exception as e:

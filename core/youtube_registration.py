@@ -1,6 +1,6 @@
 """
 YouTube URL統合登録モジュール
-チャンネルと動画の両方に対応
+チャンネル、動画、プレイリストに対応
 """
 
 from typing import Tuple
@@ -18,13 +18,52 @@ class YouTubeRegistration:
         self.song_db = SongQueueDB()
         self.detector = YouTubeURLDetector()
 
+    def extract_playlist_videos(self, playlist_url: str, ytmusic=None) -> Tuple[bool, str, list[str]]:
+        """
+        プレイリストから動画IDリストを抽出
+
+        Args:
+            playlist_url: プレイリストのURL
+            ytmusic: YTMusicインスタンス
+
+        Returns:
+            (成功/失敗, メッセージ, 動画IDリスト)
+        """
+        playlist_id = self.detector.extract_playlist_id(playlist_url)
+        if not playlist_id:
+            return False, "プレイリストIDを抽出できませんでした", []
+
+        # ytmusicが利用できない場合はNotImplemented
+        if ytmusic is None:
+            raise NotImplementedError("プレイリストからの動画抽出にはYTMusic APIが必要です")
+
+        try:
+            # プレイリストの情報を取得
+            playlist_data = ytmusic.get_playlist(playlist_id, limit=None)
+            
+            video_ids = []
+            if "tracks" in playlist_data and playlist_data["tracks"]:
+                for track in playlist_data["tracks"]:
+                    if track and "videoId" in track and track["videoId"]:
+                        video_ids.append(track["videoId"])
+            
+            if not video_ids:
+                return False, "プレイリストに動画が見つかりませんでした", []
+            
+            return True, f"プレイリストから{len(video_ids)}件の動画を抽出しました", video_ids
+            
+        except NotImplementedError:
+            raise
+        except Exception as e:
+            return False, f"プレイリスト取得エラー: {str(e)}", []
+
     def register_url(self, url: str, ytmusic=None) -> Tuple[bool, str, str]:
         """
         URLを自動判別して登録
 
         Args:
             url: YouTubeのURL
-            ytmusic: YTMusicインスタンス（チャンネル登録時のサムネイル取得用）
+            ytmusic: YTMusicインスタンス（チャンネル登録時のサムネイル取得用、プレイリスト抽出用）
 
         Returns:
             (成功/失敗, メッセージ, URLタイプ)
@@ -46,6 +85,41 @@ class YouTubeRegistration:
         elif url_type == "video":
             success, message, video_id = self.song_db.add_song(url)
             return success, message, "video"
+
+        # プレイリスト登録
+        elif url_type == "playlist":
+            try:
+                success, message, video_ids = self.extract_playlist_videos(url, ytmusic=ytmusic)
+                if not success:
+                    return False, message, "playlist"
+                
+                # 各動画をキューに追加
+                added_count = 0
+                skipped_count = 0
+                failed_count = 0
+                
+                for video_id in video_ids:
+                    video_url = f"https://www.youtube.com/watch?v={video_id}"
+                    success, msg, _ = self.song_db.add_song(video_url)
+                    if success:
+                        added_count += 1
+                    elif "既に登録済み" in msg:
+                        skipped_count += 1
+                    else:
+                        failed_count += 1
+                
+                result_message = f"プレイリスト登録完了: {added_count}件追加"
+                if skipped_count > 0:
+                    result_message += f", {skipped_count}件スキップ（既存）"
+                if failed_count > 0:
+                    result_message += f", {failed_count}件失敗"
+                
+                return True, result_message, "playlist"
+                
+            except NotImplementedError as e:
+                return False, str(e), "playlist"
+            except Exception as e:
+                return False, f"プレイリスト登録エラー: {str(e)}", "playlist"
 
         return False, "不明なエラーが発生しました", "unknown"
 
@@ -69,6 +143,8 @@ class YouTubeRegistration:
             "channel_failed": 0,
             "video_success": 0,
             "video_failed": 0,
+            "playlist_success": 0,
+            "playlist_failed": 0,
             "unknown": 0,
             "details": [],
         }
@@ -92,6 +168,11 @@ class YouTubeRegistration:
                     results["video_success"] += 1
                 else:
                     results["video_failed"] += 1
+            elif url_type == "playlist":
+                if success:
+                    results["playlist_success"] += 1
+                else:
+                    results["playlist_failed"] += 1
             else:
                 results["unknown"] += 1
 

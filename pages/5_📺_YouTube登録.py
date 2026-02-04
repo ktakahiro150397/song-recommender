@@ -18,7 +18,7 @@ st.set_page_config(
     layout="wide",
 )
 
-st.title("📺 YouTube登録（チャンネル / 曲）")
+st.title("📺 YouTube登録（チャンネル / 曲 / プレイリスト）")
 st.markdown("---")
 
 
@@ -64,10 +64,12 @@ with st.form("youtube_registration_form"):
         placeholder="""https://music.youtube.com/channel/UCxxxxxxxxxxxxx
 https://www.youtube.com/watch?v=xxxxx
 https://youtu.be/yyyyy
+https://www.youtube.com/playlist?list=PLxxxxxxxxxxxxx
 https://music.youtube.com/channel/UCyyyyyyyyyyyyyy""",
         help="""対応形式:
 ✅ チャンネル: /channel/UCxxxxx
 ✅ 動画: watch?v=xxxxx, youtu.be/xxxxx
+✅ プレイリスト: playlist?list=xxxxx
 複数のURLを改行で区切って入力できます。自動的に種類を判別します。""",
         height=150,
     )
@@ -105,7 +107,7 @@ if submit_button:
 
             # 結果のサマリーを表示
             st.markdown("### 📊 登録結果")
-            col1, col2, col3 = st.columns(3)
+            col1, col2, col3, col4 = st.columns(4)
             with col1:
                 st.metric("合計", f"{results['total']}件")
             with col2:
@@ -122,6 +124,13 @@ if submit_button:
                     f"{video_total}件",
                     help=f"成功: {results['video_success']}件 / 失敗: {results['video_failed']}件",
                 )
+            with col4:
+                playlist_total = results["playlist_success"] + results["playlist_failed"]
+                st.metric(
+                    "プレイリスト",
+                    f"{playlist_total}件",
+                    help=f"成功: {results['playlist_success']}件 / 失敗: {results['playlist_failed']}件",
+                )
 
             # 詳細結果を表示
             st.markdown("### 📋 詳細")
@@ -129,6 +138,7 @@ if submit_button:
                 type_emoji = {
                     "channel": "📺 チャンネル",
                     "video": "🎵 動画",
+                    "playlist": "📋 プレイリスト",
                     "unknown": "❓ 不明",
                 }.get(detail["type"], "❓")
 
@@ -140,7 +150,7 @@ if submit_button:
                     st.error(f"❌ [{type_emoji}] {detail['url']}: {detail['message']}")
 
             # 成功が1件以上あれば画面をリロード
-            if results["channel_success"] > 0 or results["video_success"] > 0:
+            if results["channel_success"] > 0 or results["video_success"] > 0 or results["playlist_success"] > 0:
                 st.rerun()
 
 
@@ -164,7 +174,12 @@ with st.expander("対応するURL形式"):
     - ✅ `https://youtu.be/xxxxx`
     - ✅ 動画ID（11文字）のみ: `xxxxx`
     
-    **混在入力OK**: チャンネルと動画を混ぜて入力しても自動判別します！
+    **プレイリストURL**：
+    
+    - ✅ `https://www.youtube.com/playlist?list=PLxxxxx`
+    - ✅ `https://music.youtube.com/playlist?list=PLxxxxx`
+    
+    **混在入力OK**: チャンネル、動画、プレイリストを混ぜて入力しても自動判別します！
     """
     )
 
@@ -180,6 +195,11 @@ with st.expander("登録後の処理フロー"):
     1. 動画URLがキューに追加されます
     2. `uv run register_songs.py --parallel process` を実行してダウンロード＆DB登録
     3. 登録後は「楽曲検索」で検索・再生可能になります
+    
+    **プレイリスト登録の場合**：
+    1. プレイリスト内の全動画が自動的に抽出されます
+    2. 各動画が動画キューに追加されます（既存の動画はスキップされます）
+    3. その後は動画登録と同じ処理フローになります
     """
     )
 
@@ -187,9 +207,10 @@ with st.expander("複数URL一括登録のコツ"):
     st.markdown(
         """
     - 1行に1つのURLを入力してください
-    - チャンネルと動画を混ぜて入力してもOK
+    - チャンネル、動画、プレイリストを混ぜて入力してもOK
     - 重複したURLは自動的にスキップされます
     - 無効なURL形式はエラーとして報告されます
+    - プレイリストの動画は自動的に個別に登録されます
     """
     )
 

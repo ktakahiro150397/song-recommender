@@ -173,6 +173,10 @@ if "chain_selected_song" not in st.session_state:
     st.session_state.chain_selected_song = None
 if "playlist_creating" not in st.session_state:
     st.session_state.playlist_creating = False
+if "selected_songs" not in st.session_state:
+    st.session_state.selected_songs = []
+if "selected_song_id" not in st.session_state:
+    st.session_state.selected_song_id = None
 if "matches" not in st.session_state:
     st.session_state.matches = None
 if "last_keyword" not in st.session_state:
@@ -260,6 +264,10 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
     if matches:
         st.success(f"✅ {len(matches)}件見つかりました")
 
+        st.info(
+            "💡 **使い方:** 下の表で曲の行をクリックして、類似曲検索やプレイリスト作成に使用する曲を選択してください。"
+        )
+
         # データフレームとして表示
         df_data = []
         for idx, (song_id, metadata) in enumerate(matches, 1):
@@ -276,19 +284,46 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
 
         df = pd.DataFrame(df_data)
 
-        # データフレーム表示
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        # dataframeで行選択可能なテーブルを表示
+        event = st.dataframe(
+            df,
+            use_container_width=True,
+            hide_index=True,
+            selection_mode="single-row",
+            on_select="rerun",
+            key="search_results_table",
+        )
+
+        # 選択された曲を更新
+        selected_song_id = None
+        if event.selection and event.selection.rows:
+            selected_idx = event.selection.rows[0]
+            if 0 <= selected_idx < len(matches):
+                selected_song_id, _ = matches[selected_idx]
+
+        # セッション状態を更新
+        st.session_state.selected_song_id = selected_song_id
+        st.session_state.selected_songs = (
+            [selected_song_id] if selected_song_id else []
+        )
+
+        # 選択された曲を目立つように表示
+        if selected_song_id:
+            st.success(f"✨ **選択中の曲:** {selected_song_id}")
+        else:
+            st.info("💡 曲が選択されていません")
 
         # 詳細表示用の楽曲選択
         st.divider()
         st.subheader("🎯 類似曲検索（各DBから）")
-        st.info("💡 この曲に類似している曲を検索します")
 
-        selected_song = st.selectbox(
-            "楽曲を選択して類似曲を検索",
-            options=[song_id for song_id, _ in matches],
-            format_func=lambda x: x,
-        )
+        # 選択された曲がある場合はその曲を使用、なければ最初の曲
+        if st.session_state.selected_song_id:
+            selected_song = st.session_state.selected_song_id
+            st.info(f"💡 選択された曲「{selected_song}」に類似している曲を検索します")
+        else:
+            selected_song = matches[0][0]
+            st.warning("💡 曲が選択されていません。検索結果の最初の曲を使用します")
 
         # 類似曲検索のパラメータ
         n_results = st.number_input(

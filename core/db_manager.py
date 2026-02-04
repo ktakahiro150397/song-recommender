@@ -239,9 +239,11 @@ class SongVectorDB:
         """
         データベースからランダムにサンプリングする
         
-        Note: This method loads all song IDs and embeddings into memory to perform
-        random sampling. For very large databases (>100k songs), this may be memory-intensive.
-        The sample size is capped at 1000 songs to limit memory usage.
+        メモリ効率的な実装：
+        - 小規模DB（<10k曲）: 全件読み込み後にランダムサンプリング
+        - 大規模DB（>=10k曲）: IDのみ読み込み→ランダム選択→該当曲のみ取得
+        
+        これにより100万曲規模のデータベースでもメモリを圧迫しません。
 
         Args:
             sample_percentage: サンプリング率（デフォルト: 0.05 = 5%）
@@ -259,25 +261,50 @@ class SongVectorDB:
         target_sample = int(total_count * sample_percentage)
         sample_size = max(min(10, total_count), min(target_sample, 1000, total_count))
 
-        # 全曲を取得（limit=total_count）
-        all_songs = self.collection.get(limit=total_count, include=["embeddings", "metadatas"])
+        # 大規模DBの場合はメモリ効率的な方法を使用
+        if total_count >= 10000:
+            # Step 1: IDのみを取得（メモリ効率的）
+            all_ids_result = self.collection.get(limit=total_count, include=[])
+            
+            if not all_ids_result["ids"]:
+                return {"ids": [], "embeddings": [], "metadatas": []}
+            
+            all_ids = all_ids_result["ids"]
+            
+            # Step 2: ランダムにIDを選択
+            sampled_ids = random.sample(all_ids, sample_size)
+            
+            # Step 3: 選択されたIDの楽曲のみ取得
+            sampled_songs = self.collection.get(
+                ids=sampled_ids,
+                include=["embeddings", "metadatas"]
+            )
+            
+            return {
+                "ids": sampled_songs["ids"],
+                "embeddings": sampled_songs.get("embeddings", []),
+                "metadatas": sampled_songs.get("metadatas", []),
+            }
+        else:
+            # 小規模DBの場合は従来の方法（全件取得→ランダム選択）
+            all_songs = self.collection.get(limit=total_count, include=["embeddings", "metadatas"])
 
-        if not all_songs["ids"]:
-            return {"ids": [], "embeddings": [], "metadatas": []}
+            if not all_songs["ids"]:
+                return {"ids": [], "embeddings": [], "metadatas": []}
 
-        # ランダムにインデックスを選択
-        indices = list(range(len(all_songs["ids"])))
-        random.shuffle(indices)
-        sampled_indices = indices[:sample_size]
+            # ランダムにインデックスを選択
+            indices = list(range(len(all_songs["ids"])))
+            random.shuffle(indices)
+            sampled_indices = indices[:sample_size]
 
-        # サンプリングされたデータを抽出
-        sampled_data = {
-            "ids": [all_songs["ids"][i] for i in sampled_indices],
-            "embeddings": [all_songs["embeddings"][i] for i in sampled_indices] if all_songs.get("embeddings") else [],
-            "metadatas": [all_songs["metadatas"][i] for i in sampled_indices] if all_songs.get("metadatas") else [],
-        }
+            # サンプリングされたデータを抽出
+            sampled_data = {
+                "ids": [all_songs["ids"][i] for i in sampled_indices],
+                "embeddings": [all_songs["embeddings"][i] for i in sampled_indices] if all_songs.get("embeddings") else [],
+                "metadatas": [all_songs["metadatas"][i] for i in sampled_indices] if all_songs.get("metadatas") else [],
+            }
 
-        return sampled_data
+            return sampled_data
 
 
 # ===== 動作確認用 =====

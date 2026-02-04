@@ -15,6 +15,15 @@
             "justMyCode": false
         },
         {
+            "name": "Python Debugger: Test URL Fetch",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/test_url_fetch.py",
+            "args": ["hhttps://www.youtube.com/watch?v=v2DsbuPNd90"],
+            "console": "integratedTerminal",
+            "justMyCode": false
+        },
+        {
             "name": "Python Debugger: create_dl_script_from_yt",
             "type": "debugpy",
             "request": "launch",

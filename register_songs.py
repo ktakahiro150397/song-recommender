@@ -343,13 +343,22 @@ def process_youtube_queue(parallel_mode: str = "none") -> None:
             # ベクトルDBに登録
             try:
                 filename = os.path.basename(file_path)
-                normalized_dir = (
-                    "youtube"  # YouTubeから取得したものはyoutubeディレクトリ扱い
-                )
+                # song_queueに保存されたメタデータを使用
+                normalized_dir = song.get("source_dir", "youtube")
+                artist_name = song.get("artist_name")
+                song_title = song.get("title")
 
                 registered = False
                 for db, extractor, mode in dbs_and_extractors:
-                    if add_song(db, extractor, file_path, filename, normalized_dir):
+                    if add_song(
+                        db,
+                        extractor,
+                        file_path,
+                        filename,
+                        normalized_dir,
+                        artist_name=artist_name,
+                        song_title_override=song_title,
+                    ):
                         registered = True
 
                 if registered:
@@ -414,6 +423,8 @@ def add_song(
     file_path: str,
     filename: str,
     normalized_dir: str,
+    artist_name: str | None = None,
+    song_title_override: str | None = None,
 ) -> bool:
     """
     1曲をDBに登録する
@@ -424,17 +435,29 @@ def add_song(
         file_path: 実際のファイルパス
         filename: ファイル名
         normalized_dir: 正規化されたディレクトリパス（data/を除いた形式）
+        artist_name: アーティスト名（任意）
+        song_title_override: 曲名上書き（任意）
 
     Returns:
         登録したらTrue、スキップしたらFalse
     """
-    # 既に登録済みならスキップ
+    # ファイル名で既に登録済みならスキップ
     if db.get_song(song_id=filename) is not None:
         return False
 
     # 対象の拡張子のみ処理
     if not (filename.endswith(".wav") or filename.endswith(".mp3")):
         return False
+
+    # YouTube IDによる重複チェック
+    youtube_id = extract_youtube_id(filename)
+    if youtube_id:
+        existing = db.get_by_youtube_id(youtube_id)
+        if existing:
+            print(
+                f"   ⏭️  YouTube動画ID ({youtube_id}) は既に登録済みです: {existing['id']}"
+            )
+            return False
 
     # 特徴量抽出
     try:
@@ -443,14 +466,16 @@ def add_song(
         print(f"   ❌ 特徴量抽出エラー ({filename}): {str(e)}")
         raise
 
-    # メタデータ構築
-    youtube_id = extract_youtube_id(filename)
-    song_title = extract_song_title(filename)
+    # メタデータ構築（youtube_idは既に抽出済み）
+    song_title = (
+        song_title_override if song_title_override else extract_song_title(filename)
+    )
     _, ext = os.path.splitext(filename)
 
     metadata = {
         "filename": filename,
-        "song_title": song_title,  # 抽出した曲名
+        "song_title": song_title,  # 抽出した曲名（または上書き）
+        "artist_name": artist_name,  # アーティスト名（キューから取得）
         "source_dir": normalized_dir,  # data/xxx 形式
         "youtube_id": youtube_id,  # YouTube動画ID（なければNone）
         "file_extension": ext.lower(),  # .mp3 or .wav
@@ -467,6 +492,8 @@ def prepare_song_data(
     file_path: str,
     filename: str,
     normalized_dir: str,
+    artist_name: str | None = None,
+    song_title_override: str | None = None,
 ) -> tuple[str, list[float], dict] | None:
     """
     1曲分のデータを準備する（バッチ処理用）
@@ -476,6 +503,8 @@ def prepare_song_data(
         file_path: 実際のファイルパス
         filename: ファイル名
         normalized_dir: 正規化されたディレクトリパス
+        artist_name: アーティスト名（任意）
+        song_title_override: 曲名上書き（任意）
 
     Returns:
         (song_id, embedding, metadata) のタプル、または処理不要の場合はNone
@@ -493,12 +522,15 @@ def prepare_song_data(
 
     # メタデータ構築
     youtube_id = extract_youtube_id(filename)
-    song_title = extract_song_title(filename)
+    song_title = (
+        song_title_override if song_title_override else extract_song_title(filename)
+    )
     _, ext = os.path.splitext(filename)
 
     metadata = {
         "filename": filename,
         "song_title": song_title,
+        "artist_name": artist_name,
         "source_dir": normalized_dir,
         "youtube_id": youtube_id,
         "file_extension": ext.lower(),

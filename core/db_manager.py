@@ -198,6 +198,31 @@ class SongVectorDB:
         """登録されている楽曲数を返す"""
         return self.collection.count()
 
+    def get_by_youtube_id(self, youtube_id: str) -> dict | None:
+        """
+        YouTube動画IDで楽曲を検索する
+
+        Args:
+            youtube_id: YouTube動画ID（11文字）
+
+        Returns:
+            楽曲情報（見つからない場合はNone）
+        """
+        try:
+            result = self.collection.get(
+                where={"youtube_id": youtube_id}, include=["metadatas"]
+            )
+            if result["ids"] and len(result["ids"]) > 0:
+                return {
+                    "id": result["ids"][0],
+                    "metadata": result["metadatas"][0] if result["metadatas"] else None,
+                }
+            return None
+        except Exception as e:
+            # エラー時はNoneを返す（未登録扱い）
+            print(f"Warning: Failed to search by youtube_id '{youtube_id}': {e}")
+            return None
+
     def list_all(self, limit: int = 100) -> dict:
         """
         登録されている楽曲一覧を取得する

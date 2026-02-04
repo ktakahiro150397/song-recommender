@@ -44,7 +44,13 @@ class SongQueueDB:
         return None
 
     def add_song(
-        self, url: str, title: Optional[str] = None
+        self,
+        url: str,
+        title: Optional[str] = None,
+        artist_name: Optional[str] = None,
+        thumbnail_url: Optional[str] = None,
+        source_dir: str = "youtube",
+        ytmusic=None,
     ) -> tuple[bool, str, Optional[str]]:
         """
         YouTube動画をキューに追加する
@@ -52,6 +58,10 @@ class SongQueueDB:
         Args:
             url: YouTubeのURL
             title: 曲名（任意）
+            artist_name: アーティスト名（任意）
+            thumbnail_url: サムネイルURL（任意）
+            source_dir: ソースディレクトリ（デフォルト: "youtube"）
+            ytmusic: YTMusicインスタンス（メタデータ自動取得用）
 
         Returns:
             (成功/失敗, メッセージ, 動画ID) のタプル
@@ -60,6 +70,37 @@ class SongQueueDB:
 
         if not video_id:
             return False, "無効なURLです。YouTubeの動画URLを入力してください", None
+
+        # YTMusic APIでメタデータを取得（指定がない場合）
+        if ytmusic is not None and (
+            title is None or artist_name is None or thumbnail_url is None
+        ):
+            try:
+                video_info = ytmusic.get_song(video_id)
+                if video_info and "videoDetails" in video_info:
+                    video_details = video_info["videoDetails"]
+
+                    # タイトル取得
+                    if title is None and "title" in video_details:
+                        title = video_details["title"]
+
+                    # アーティスト名取得
+                    if artist_name is None and "author" in video_details:
+                        artist_name = video_details["author"]
+
+                    # サムネイル取得
+                    if (
+                        thumbnail_url is None
+                        and "thumbnail" in video_details
+                        and "thumbnails" in video_details["thumbnail"]
+                        and len(video_details["thumbnail"]["thumbnails"]) > 0
+                    ):
+                        thumbnail_url = video_details["thumbnail"]["thumbnails"][0][
+                            "url"
+                        ]
+            except Exception as e:
+                # メタデータ取得に失敗しても登録は続行
+                print(f"メタデータ取得エラー (続行します): {str(e)}")
 
         try:
             with get_session() as session:
@@ -76,6 +117,9 @@ class SongQueueDB:
                     video_id=video_id,
                     url=url,
                     title=title,
+                    artist_name=artist_name,
+                    thumbnail_url=thumbnail_url,
+                    source_dir=source_dir,
                     status="pending",
                     registered_at=datetime.now(),
                 )
@@ -110,6 +154,9 @@ class SongQueueDB:
                     "video_id": song.video_id,
                     "url": song.url,
                     "title": song.title,
+                    "artist_name": song.artist_name,
+                    "thumbnail_url": song.thumbnail_url,
+                    "source_dir": song.source_dir,
                     "status": song.status,
                     "registered_at": (
                         song.registered_at.isoformat() if song.registered_at else None
@@ -145,6 +192,9 @@ class SongQueueDB:
                     "video_id": song.video_id,
                     "url": song.url,
                     "title": song.title,
+                    "artist_name": song.artist_name,
+                    "thumbnail_url": song.thumbnail_url,
+                    "source_dir": song.source_dir,
                     "status": song.status,
                     "registered_at": (
                         song.registered_at.isoformat() if song.registered_at else None

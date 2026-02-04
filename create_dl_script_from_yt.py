@@ -10,6 +10,15 @@ from ytmusicapi import YTMusic
 ytm = YTMusic()
 
 
+def sanitize_filename(filename: str) -> str:
+    """Windowsで利用できないファイル名文字を置換する"""
+    # Windowsで使用できない文字: < > : " / \ | ? *
+    invalid_chars = '<>:"/\\|?*'
+    for char in invalid_chars:
+        filename = filename.replace(char, "_")
+    return filename
+
+
 @dataclass
 class ChannelSongData:
     channel_id: str
@@ -135,8 +144,9 @@ def create_download_script(
 ) -> None:
     """曲IDのリストからダウンロードスクリプトを作成する"""
     artist_name = get_most_common_artist(song_data)
+    safe_artist_name = sanitize_filename(artist_name)
     base_dir = "F:\\song-recommender-data\\data"
-    artist_dir = f"{base_dir}\\{artist_name}"
+    artist_dir = f"{base_dir}\\{safe_artist_name}"
 
     with open(output_file, "w", encoding="utf-8") as f:
         f.write("# PowerShell スクリプト\n")
@@ -262,7 +272,10 @@ def main():
 
                 # ファイル名を生成（最頻出アーティスト名を使用）
                 artist_name = get_most_common_artist(channel_metadata)
-                filename = f"scripts_{artist_name}_{channel_metadata[0].channel_id}.ps1"
+                safe_artist_name = sanitize_filename(artist_name)
+                filename = (
+                    f"scripts_{safe_artist_name}_{channel_metadata[0].channel_id}.ps1"
+                )
                 output_file = output_dir / filename
 
                 create_download_script(channel_metadata, str(output_file), args.delay)

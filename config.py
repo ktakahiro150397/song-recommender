@@ -11,6 +11,14 @@ from dotenv import load_dotenv
 # .envファイルを読み込み
 load_dotenv()
 
+# ========== MySQL データベース設定 ==========
+
+MYSQL_HOST = os.getenv("MYSQL_HOST", "localhost")
+MYSQL_PORT = int(os.getenv("MYSQL_PORT", "3306"))
+MYSQL_DATABASE = os.getenv("MYSQL_DATABASE", "song_recommender")
+MYSQL_USER = os.getenv("MYSQL_USER", "app_user")
+MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD", "app_password")
+
 # ========== ChromaDB 設定 ==========
 
 # ChromaDB 接続先（Dockerコンテナまたはローカル）

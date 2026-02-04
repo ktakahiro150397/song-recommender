@@ -1,4 +1,29 @@
 services:
+  # MySQL データベース
+  mysql:
+    image: mysql:8.0
+    container_name: mysql
+    restart: unless-stopped
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-rootpassword}
+      - MYSQL_DATABASE=${MYSQL_DATABASE:-song_recommender}
+      - MYSQL_USER=${MYSQL_USER:-app_user}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-app_password}
+      - TZ=Asia/Tokyo
+    command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-rootpassword}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - app-network
+
   # ChromaDB ベクトルデータベース
   chromadb:
     image: chromadb/chroma:latest
@@ -29,8 +54,10 @@ services:
     container_name: song-recommender
     restart: unless-stopped
     depends_on:
+      mysql:
+        condition: service_started
       chromadb:
-        condition: service_healthy
+        condition: service_started
     ports:
       - "9100:8501"
     volumes:
@@ -47,6 +74,11 @@ services:
       - STREAMLIT_SERVER_HEADLESS=true
       - CHROMA_HOST=${CHROMA_HOST}
       - CHROMA_PORT=${CHROMA_PORT}
+      - MYSQL_HOST=${MYSQL_HOST:-mysql}
+      - MYSQL_PORT=${MYSQL_PORT:-3306}
+      - MYSQL_DATABASE=${MYSQL_DATABASE:-song_recommender}
+      - MYSQL_USER=${MYSQL_USER:-app_user}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-app_password}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
       interval: 30s
@@ -65,3 +97,7 @@ services:
 networks:
   app-network:
     driver: bridge
+
+volumes:
+  mysql_data:
+    driver: local

@@ -5,11 +5,16 @@ SQLite から MySQL へのデータ移行スクリプト
 実行前に MySQL が起動していることを確認してください。
 """
 
+import os
 import sqlite3
 from pathlib import Path
 from datetime import datetime
+from dotenv import load_dotenv
 from core.database import get_session, init_database
 from core.models import SongQueue, YouTubeChannel
+
+# .envファイルを読み込み
+load_dotenv()
 
 
 def migrate_song_queue():

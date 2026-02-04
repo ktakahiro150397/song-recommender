@@ -18,7 +18,9 @@ class YouTubeRegistration:
         self.song_db = SongQueueDB()
         self.detector = YouTubeURLDetector()
 
-    def extract_playlist_videos(self, playlist_url: str, ytmusic=None) -> Tuple[bool, str, list[str]]:
+    def extract_playlist_videos(
+        self, playlist_url: str, ytmusic=None
+    ) -> Tuple[bool, str, list[str]]:
         """
         プレイリストから動画IDリストを抽出
 
@@ -33,27 +35,39 @@ class YouTubeRegistration:
         if not playlist_id:
             return False, "プレイリストIDを抽出できませんでした", []
 
+        # 自動生成プレイリスト（RDで始まる）は事前に弾く
+        if playlist_id.startswith("RD"):
+            return False, "自動生成プレイリスト（Radio、Mix）は対応していません", []
+
         # ytmusicが利用できない場合はNotImplemented
         if ytmusic is None:
-            raise NotImplementedError("プレイリストからの動画抽出にはYTMusic APIが必要です")
+            raise NotImplementedError(
+                "プレイリストからの動画抽出にはYTMusic APIが必要です"
+            )
 
         try:
             # プレイリストの情報を取得
             playlist_data = ytmusic.get_playlist(playlist_id, limit=None)
-            
+
             video_ids = []
             if "tracks" in playlist_data and playlist_data["tracks"]:
                 for track in playlist_data["tracks"]:
                     if track and "videoId" in track and track["videoId"]:
                         video_ids.append(track["videoId"])
-            
+
             if not video_ids:
                 return False, "プレイリストに動画が見つかりませんでした", []
-            
-            return True, f"プレイリストから{len(video_ids)}件の動画を抽出しました", video_ids
-            
+
+            return (
+                True,
+                f"プレイリストから{len(video_ids)}件の動画を抽出しました",
+                video_ids,
+            )
+
         except Exception as e:
-            return False, f"プレイリスト取得エラー: {str(e)}", []
+            # プレイリスト取得エラー
+            error_msg = f"プレイリスト取得エラー: {str(e)}"
+            return False, error_msg, []
 
     def register_url(self, url: str, ytmusic=None) -> Tuple[bool, str, str]:
         """
@@ -81,24 +95,54 @@ class YouTubeRegistration:
 
         # 動画登録
         elif url_type == "video":
-            success, message, video_id = self.song_db.add_song(url)
+            success, message, video_id = self.song_db.add_song(url, ytmusic=ytmusic)
             return success, message, "video"
 
         # プレイリスト登録
         elif url_type == "playlist":
             try:
-                success, message, video_ids = self.extract_playlist_videos(url, ytmusic=ytmusic)
+                success, message, video_ids = self.extract_playlist_videos(
+                    url, ytmusic=ytmusic
+                )
                 if not success:
+                    # プレイリスト取得失敗時、URLに動画IDが含まれていれば動画として登録
+                    video_id = self.song_db.extract_video_id(url)
+                    if video_id:
+                        video_success, video_message, _ = self.song_db.add_song(
+                            url, ytmusic=ytmusic
+                        )
+                        if video_success:
+                            return (
+                                True,
+                                f"プレイリスト取得失敗のため動画として登録しました: {video_message}",
+                                "video",
+                            )
+                        else:
+                            # 既に登録済みの場合は成功扱い
+                            if "既に登録済み" in video_message:
+                                return (
+                                    True,
+                                    video_message,
+                                    "video",
+                                )
+                            else:
+                                return (
+                                    False,
+                                    f"動画登録エラー: {video_message}",
+                                    "playlist",
+                                )
                     return False, message, "playlist"
-                
+
                 # 各動画をキューに追加
                 added_count = 0
                 skipped_count = 0
                 failed_count = 0
-                
+
                 for video_id in video_ids:
                     video_url = f"https://www.youtube.com/watch?v={video_id}"
-                    success, msg, returned_video_id = self.song_db.add_song(video_url)
+                    success, msg, returned_video_id = self.song_db.add_song(
+                        video_url, ytmusic=ytmusic
+                    )
                     if success:
                         added_count += 1
                     elif returned_video_id and not success:
@@ -106,15 +150,15 @@ class YouTubeRegistration:
                         skipped_count += 1
                     else:
                         failed_count += 1
-                
+
                 result_message = f"プレイリスト登録完了: {added_count}件追加"
                 if skipped_count > 0:
                     result_message += f", {skipped_count}件スキップ（既存）"
                 if failed_count > 0:
                     result_message += f", {failed_count}件失敗"
-                
+
                 return True, result_message, "playlist"
-                
+
             except NotImplementedError as e:
                 return False, str(e), "playlist"
             except Exception as e:

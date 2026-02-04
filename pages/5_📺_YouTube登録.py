@@ -125,7 +125,9 @@ if submit_button:
                     help=f"成功: {results['video_success']}件 / 失敗: {results['video_failed']}件",
                 )
             with col4:
-                playlist_total = results["playlist_success"] + results["playlist_failed"]
+                playlist_total = (
+                    results["playlist_success"] + results["playlist_failed"]
+                )
                 st.metric(
                     "プレイリスト",
                     f"{playlist_total}件",
@@ -149,9 +151,17 @@ if submit_button:
                 else:
                     st.error(f"❌ [{type_emoji}] {detail['url']}: {detail['message']}")
 
-            # 成功が1件以上あれば画面をリロード
-            if results["channel_success"] > 0 or results["video_success"] > 0 or results["playlist_success"] > 0:
-                st.rerun()
+            # 成功が1件以上あれば、統計情報を更新するためのボタンを表示
+            if (
+                results["channel_success"] > 0
+                or results["video_success"] > 0
+                or results["playlist_success"] > 0
+            ):
+                st.markdown("---")
+                if st.button(
+                    "📊 統計情報を更新", type="secondary", use_container_width=True
+                ):
+                    st.rerun()
 
 
 # 使い方の説明

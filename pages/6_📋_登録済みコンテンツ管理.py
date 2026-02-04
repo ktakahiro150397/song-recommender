@@ -483,11 +483,13 @@ with tab2:
             display_data.append(
                 {
                     "ステータス": status_emoji,
+                    "タイトル": song.get("title", ""),
+                    "アーティスト名": song.get("artist_name", ""),
+                    "URL": song["url"],
                     "動画ID": song["video_id"],
                     "登録日時": (
                         song["registered_at"][:19] if song["registered_at"] else ""
                     ),
-                    "URL": song["url"],
                 }
             )
 

@@ -133,7 +133,6 @@ with st.expander("🔍 データベース詳細情報"):
                 queue_counts["failed"]
             ]
         }
-        import pandas as pd
         queue_df = pd.DataFrame(queue_df_data)
         st.dataframe(queue_df, hide_index=True, use_container_width=True)
     else:

@@ -88,6 +88,8 @@ def extract_video_id_from_filename(filename: str) -> str | None:
     """
     ファイル名からYouTube動画IDを抽出する
     例: "フェスタ・イルミネーション [0Oj57StVGKk].wav" → "0Oj57StVGKk"
+    
+    Note: YouTubeの動画IDは11文字の英数字とハイフン、アンダースコアで構成される
     """
     match = re.search(r"\[([a-zA-Z0-9_-]{11})\]", filename)
     return match.group(1) if match else None

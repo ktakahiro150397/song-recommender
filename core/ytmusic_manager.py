@@ -230,13 +230,14 @@ class YTMusicManager:
 
             if is_video_id:
                 # ビデオIDが直接指定されている場合はそのまま使用
+                # Note: API呼び出しを避けるため、メタデータは取得しない（プレースホルダー値を使用）
                 video_ids.append(data)
                 result["found_songs"].append(
                     {
                         "query": f"Video ID: {data}",
                         "videoId": data,
-                        "title": "Direct video ID",
-                        "artist": "N/A",
+                        "title": "Direct video ID",  # プレースホルダー
+                        "artist": "N/A",  # プレースホルダー
                     }
                 )
                 if verbose:

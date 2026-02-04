@@ -13,19 +13,33 @@ st.set_page_config(
     layout="wide",
 )
 
-st.title("🎵 楽曲レコメンドシステム")
+# ページ定義
+pages = [
+    st.Page("home_page.py", title="TOP", icon="🏠", default=True),
+    st.Page("pages/1_🎵_楽曲検索.py", title="楽曲検索", icon="🎵"),
+    st.Page(
+        "pages/2_📤_楽曲ファイルアップロード.py",
+        title="楽曲ファイルアップロード",
+        icon="📤",
+    ),
+    st.Page("pages/3_🗄️_DBメンテナンス.py", title="DBメンテナンス", icon="🗄️"),
+    st.Page(
+        "pages/4_🗄️_DBメンテナンス_楽曲登録.py",
+        title="DBメンテナンス 楽曲登録",
+        icon="🗄️",
+    ),
+    st.Page(
+        "pages/5_📺_YouTubeチャンネル登録.py", title="YouTubeチャンネル登録", icon="📺"
+    ),
+    st.Page("pages/6_📋_チャンネル一覧.py", title="チャンネル一覧", icon="📋"),
+    st.Page("pages/7_🎵_YouTube曲登録.py", title="YouTube曲登録", icon="🎵"),
+]
 
-st.markdown(
-    """
-### ようこそ！
+# ナビゲーションを設定
+pg = st.navigation(pages)
 
-このアプリでは以下の機能が利用できます：
-
-- **🔍 曲調おすすめプレイリスト**: 指定した楽曲から似た曲を連鎖的に検索
-- **🎵 個別曲検索**: キーワードで楽曲を検索
-- **🗄️ DBメンテナンス**: データベースの管理と曲の削除
-"""
-)
+# ページを実行
+pg.run()
 
 st.info("📌 左側のサイドバーからページを選択してください")
 

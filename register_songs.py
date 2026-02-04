@@ -441,13 +441,23 @@ def add_song(
     Returns:
         登録したらTrue、スキップしたらFalse
     """
-    # 既に登録済みならスキップ
+    # ファイル名で既に登録済みならスキップ
     if db.get_song(song_id=filename) is not None:
         return False
 
     # 対象の拡張子のみ処理
     if not (filename.endswith(".wav") or filename.endswith(".mp3")):
         return False
+
+    # YouTube IDによる重複チェック
+    youtube_id = extract_youtube_id(filename)
+    if youtube_id:
+        existing = db.get_by_youtube_id(youtube_id)
+        if existing:
+            print(
+                f"   ⏭️  YouTube動画ID ({youtube_id}) は既に登録済みです: {existing['id']}"
+            )
+            return False
 
     # 特徴量抽出
     try:
@@ -456,8 +466,7 @@ def add_song(
         print(f"   ❌ 特徴量抽出エラー ({filename}): {str(e)}")
         raise
 
-    # メタデータ構築
-    youtube_id = extract_youtube_id(filename)
+    # メタデータ構築（youtube_idは既に抽出済み）
     song_title = (
         song_title_override if song_title_override else extract_song_title(filename)
     )

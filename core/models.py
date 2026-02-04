@@ -24,6 +24,11 @@ class SongQueue(Base):
     video_id: Mapped[str] = mapped_column(String(11), unique=True, nullable=False)
     url: Mapped[str] = mapped_column(String(500), nullable=False)
     title: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    artist_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    thumbnail_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_dir: Mapped[str] = mapped_column(
+        String(100), nullable=False, default="youtube", server_default="youtube"
+    )
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default="pending", server_default="pending"
     )

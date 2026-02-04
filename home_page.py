@@ -3,6 +3,7 @@
 """
 
 import streamlit as st
+from core.db_manager import SongVectorDB
 
 st.title("🎵 楽曲レコメンドシステム")
 
@@ -22,8 +23,6 @@ st.info("📌 左側のサイドバーからページを選択してください
 
 # DBの統計情報を表示
 st.subheader("データベース統計")
-
-from core.db_manager import SongVectorDB
 
 # リモートChromaDBサーバーのコレクション名
 DB_COLLECTIONS = {

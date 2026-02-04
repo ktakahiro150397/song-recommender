@@ -137,21 +137,21 @@ def get_recently_added_songs(
     """
     # 全曲取得（limit=10000で十分な数を取得）
     all_songs = db.list_all(limit=10000)
-    
+
     # メタデータと曲IDをペアにしてリスト化
     song_list = []
     for idx, song_id in enumerate(all_songs["ids"]):
         metadata = all_songs["metadatas"][idx] if all_songs["metadatas"] else {}
         song_list.append((song_id, metadata))
-    
+
     # registered_atでソート（新しい順）
     # registered_atが存在しない場合は古い扱いとする
     sorted_songs = sorted(
         song_list,
         key=lambda x: x[1].get("registered_at", "1900-01-01T00:00:00"),
-        reverse=True  # 新しい順
+        reverse=True,  # 新しい順
     )
-    
+
     return sorted_songs[:limit]
 
 
@@ -173,6 +173,10 @@ if "chain_selected_song" not in st.session_state:
     st.session_state.chain_selected_song = None
 if "playlist_creating" not in st.session_state:
     st.session_state.playlist_creating = False
+if "matches" not in st.session_state:
+    st.session_state.matches = None
+if "last_keyword" not in st.session_state:
+    st.session_state.last_keyword = None
 
 # サイドバー設定
 st.sidebar.header("検索設定")
@@ -215,7 +219,15 @@ with col1:
 with col2:
     search_button = st.button("🔍 検索", type="primary", use_container_width=True)
 with col3:
-    recommend_button = st.button("✨ おすすめ曲", type="secondary", use_container_width=True)
+    recommend_button = st.button(
+        "✨ おすすめ曲", type="secondary", use_container_width=True
+    )
+
+# 初回表示時にデフォルトでおすすめ曲を表示
+if st.session_state.matches is None and st.session_state.last_keyword is None:
+    with st.spinner("おすすめ曲を取得中..."):
+        st.session_state.matches = get_recently_added_songs(db, limit=max_results)
+        st.session_state.last_keyword = "__recommend__"
 
 # 検索実行
 if search_button or recommend_button or "last_keyword" in st.session_state:
@@ -227,7 +239,10 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
     # 検索ボタンが押された、またはキーワードが変更された場合
     elif search_button or (
         "last_keyword" not in st.session_state
-        or (st.session_state.last_keyword != keyword and st.session_state.last_keyword != "__recommend__")
+        or (
+            st.session_state.last_keyword != keyword
+            and st.session_state.last_keyword != "__recommend__"
+        )
     ):
         # キーワードが空でも検索可能にする
         current_keyword = keyword if keyword else ""
@@ -237,7 +252,7 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
         )
 
     matches = st.session_state.matches
-    
+
     # 表示タイトルを変更
     if st.session_state.last_keyword == "__recommend__":
         st.info("✨ 最近追加された楽曲を表示しています")

@@ -11,6 +11,9 @@ from typing import Literal
 # 距離関数の型
 DistanceFunction = Literal["l2", "cosine", "ip"]
 
+# ランダムサンプリングの閾値（この値以上の曲数で効率的な方法を使用）
+LARGE_DB_THRESHOLD = 10000
+
 
 class SongVectorDB:
     """楽曲ベクトルを管理するクラス"""
@@ -262,7 +265,7 @@ class SongVectorDB:
         sample_size = max(min(10, total_count), min(target_sample, 1000, total_count))
 
         # 大規模DBの場合はメモリ効率的な方法を使用
-        if total_count >= 10000:
+        if total_count >= LARGE_DB_THRESHOLD:
             # Step 1: IDのみを取得（メモリ効率的）
             all_ids_result = self.collection.get(limit=total_count, include=[])
             
@@ -271,8 +274,9 @@ class SongVectorDB:
             
             all_ids = all_ids_result["ids"]
             
-            # Step 2: ランダムにIDを選択
-            sampled_ids = random.sample(all_ids, sample_size)
+            # Step 2: ランダムにIDを選択（実際の取得件数に合わせて調整）
+            actual_sample_size = min(sample_size, len(all_ids))
+            sampled_ids = random.sample(all_ids, actual_sample_size)
             
             # Step 3: 選択されたIDの楽曲のみ取得
             sampled_songs = self.collection.get(

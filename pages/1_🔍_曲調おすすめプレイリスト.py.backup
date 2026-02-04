@@ -64,9 +64,12 @@ def style_distance_column(df: pd.DataFrame) -> pd.DataFrame:
         except:
             return ""
 
-    # 距離列にのみスタイルを適用
-    styled = df.style.applymap(color_distance, subset=["距離"])
-    return styled
+    # 距離列が存在する場合のみスタイルを適用
+    if "距離" in df.columns:
+        styled = df.style.map(color_distance, subset=["距離"])
+        return styled
+    else:
+        return df.style
 
 
 # ========== メイン画面 ==========
@@ -149,10 +152,11 @@ if keyword:
             "🔍 曲調おすすめプレイリスト検索を実行", type="primary"
         ):
             with st.spinner("曲調おすすめプレイリスト検索中..."):
-                # DBsを初期化
+                # 全てのDBsを初期化（検索には全てのDBを使用）
                 dbs = [
                     SongVectorDB(db_path=path, distance_fn="cosine")
                     for path in DB_PATHS
+                    if Path(path).exists()
                 ]
 
                 # 既存の関数を使用

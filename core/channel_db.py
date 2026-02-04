@@ -1,67 +1,21 @@
 """
-YouTubeチャンネルURL管理用のSQLiteデータベース操作モジュール
+YouTubeチャンネルURL管理用のMySQLデータベース操作モジュール
 """
 
-import sqlite3
-from pathlib import Path
 from datetime import datetime
 from typing import Optional
 from urllib.parse import urlparse
+from sqlalchemy import select, update, delete, func
+from core.database import get_session, init_database
+from core.models import YouTubeChannel
 
 
 class ChannelDB:
     """YouTubeチャンネルURLを管理するクラス"""
 
-    def __init__(self, db_path: str = "./data/youtube_channels.db"):
-        """
-        Args:
-            db_path: SQLiteデータベースファイルのパス
-        """
-        # ディレクトリがなければ作成
-        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-
-        self.db_path = db_path
-        self._init_db()
-
-    def _init_db(self) -> None:
+    def __init__(self):
         """データベースとテーブルを初期化"""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS youtube_channels (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    url TEXT NOT NULL UNIQUE,
-                    channel_id TEXT NOT NULL,
-                    channel_name TEXT,
-                    thumbnail_url TEXT,
-                    registered_at TIMESTAMP NOT NULL,
-                    output_count INTEGER DEFAULT 0
-                )
-            """
-            )
-            # インデックスを作成
-            conn.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_registered_at 
-                ON youtube_channels(registered_at DESC)
-            """
-            )
-            conn.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_channel_id 
-                ON youtube_channels(channel_id)
-            """
-            )
-
-            # 既存のテーブルにoutput_count列が存在しない場合は追加
-            cursor = conn.execute("PRAGMA table_info(youtube_channels)")
-            columns = [row[1] for row in cursor.fetchall()]
-            if "output_count" not in columns:
-                conn.execute(
-                    "ALTER TABLE youtube_channels ADD COLUMN output_count INTEGER DEFAULT 0"
-                )
-
-            conn.commit()
+        init_database()
 
     @staticmethod
     def extract_channel_id(url: str) -> tuple[bool, str, str]:
@@ -169,21 +123,32 @@ class ChannelDB:
 
         # 登録
         try:
-            with sqlite3.connect(self.db_path) as conn:
-                registered_at = datetime.now().isoformat()
-                conn.execute(
-                    "INSERT INTO youtube_channels (url, channel_id, channel_name, thumbnail_url, registered_at) VALUES (?, ?, ?, ?, ?)",
-                    (url, channel_id, channel_name, thumbnail_url, registered_at),
+            with get_session() as session:
+                # 既存チェック
+                existing = session.execute(
+                    select(YouTubeChannel).where(YouTubeChannel.url == url)
+                ).scalar_one_or_none()
+
+                if existing:
+                    return False, "このURLは既に登録されています", None
+
+                # 新規登録
+                channel = YouTubeChannel(
+                    url=url,
+                    channel_id=channel_id,
+                    channel_name=channel_name,
+                    thumbnail_url=thumbnail_url,
+                    registered_at=datetime.now(),
+                    output_count=0,
                 )
-                conn.commit()
+                session.add(channel)
+                session.commit()
                 return (
                     True,
                     f"チャンネルURLを登録しました (ID: {channel_id})",
                     thumbnail_url,
                 )
 
-        except sqlite3.IntegrityError:
-            return False, "このURLは既に登録されています", None
         except Exception as e:
             return False, f"登録エラー: {str(e)}", None
 
@@ -194,16 +159,31 @@ class ChannelDB:
         Returns:
             チャンネル情報のリスト
         """
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.execute(
-                """
-                SELECT id, url, channel_id, channel_name, thumbnail_url, registered_at, output_count 
-                FROM youtube_channels 
-                ORDER BY registered_at DESC
-            """
+        with get_session() as session:
+            channels = (
+                session.execute(
+                    select(YouTubeChannel).order_by(YouTubeChannel.registered_at.desc())
+                )
+                .scalars()
+                .all()
             )
-            return [dict(row) for row in cursor.fetchall()]
+
+            return [
+                {
+                    "id": channel.id,
+                    "url": channel.url,
+                    "channel_id": channel.channel_id,
+                    "channel_name": channel.channel_name,
+                    "thumbnail_url": channel.thumbnail_url,
+                    "registered_at": (
+                        channel.registered_at.isoformat()
+                        if channel.registered_at
+                        else None
+                    ),
+                    "output_count": channel.output_count,
+                }
+                for channel in channels
+            ]
 
     def delete_channel(self, channel_id: int) -> tuple[bool, str]:
         """
@@ -216,13 +196,13 @@ class ChannelDB:
             (成功/失敗, メッセージ) のタプル
         """
         try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.execute(
-                    "DELETE FROM youtube_channels WHERE id = ?", (channel_id,)
+            with get_session() as session:
+                result = session.execute(
+                    delete(YouTubeChannel).where(YouTubeChannel.id == channel_id)
                 )
-                conn.commit()
+                session.commit()
 
-                if cursor.rowcount > 0:
+                if result.rowcount > 0:
                     return True, "チャンネルを削除しました"
                 else:
                     return False, "指定されたチャンネルが見つかりません"
@@ -237,9 +217,9 @@ class ChannelDB:
         Returns:
             チャンネル数
         """
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute("SELECT COUNT(*) FROM youtube_channels")
-            return cursor.fetchone()[0]
+        with get_session() as session:
+            count = session.execute(select(func.count(YouTubeChannel.id))).scalar()
+            return count or 0
 
     def channel_exists(self, url: str) -> bool:
         """
@@ -251,11 +231,11 @@ class ChannelDB:
         Returns:
             存在する場合True
         """
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute(
-                "SELECT COUNT(*) FROM youtube_channels WHERE url = ?", (url,)
-            )
-            return cursor.fetchone()[0] > 0
+        with get_session() as session:
+            count = session.execute(
+                select(func.count(YouTubeChannel.id)).where(YouTubeChannel.url == url)
+            ).scalar()
+            return (count or 0) > 0
 
     def update_channel_name(self, channel_id: int, new_name: str) -> tuple[bool, str]:
         """
@@ -269,14 +249,15 @@ class ChannelDB:
             (成功/失敗, メッセージ) のタプル
         """
         try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.execute(
-                    "UPDATE youtube_channels SET channel_name = ? WHERE id = ?",
-                    (new_name, channel_id),
+            with get_session() as session:
+                result = session.execute(
+                    update(YouTubeChannel)
+                    .where(YouTubeChannel.id == channel_id)
+                    .values(channel_name=new_name)
                 )
-                conn.commit()
+                session.commit()
 
-                if cursor.rowcount > 0:
+                if result.rowcount > 0:
                     return True, "アーティスト名を更新しました"
                 else:
                     return False, "指定されたチャンネルが見つかりません"
@@ -295,21 +276,28 @@ class ChannelDB:
             (成功/失敗, メッセージ) のタプル
         """
         try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.execute(
-                    "UPDATE youtube_channels SET output_count = output_count + 1 WHERE channel_id = ?",
-                    (channel_id,),
+            with get_session() as session:
+                result = session.execute(
+                    update(YouTubeChannel)
+                    .where(YouTubeChannel.channel_id == channel_id)
+                    .values(output_count=YouTubeChannel.output_count + 1)
                 )
-                conn.commit()
+                session.commit()
 
-                if cursor.rowcount > 0:
+                if result.rowcount > 0:
                     # 更新後のカウントを取得
-                    cursor = conn.execute(
-                        "SELECT output_count FROM youtube_channels WHERE channel_id = ?",
-                        (channel_id,),
-                    )
-                    count = cursor.fetchone()[0]
-                    return True, f"出力回数を更新しました (現在: {count}回目)"
+                    channel = session.execute(
+                        select(YouTubeChannel).where(
+                            YouTubeChannel.channel_id == channel_id
+                        )
+                    ).scalar_one_or_none()
+
+                    if channel:
+                        return (
+                            True,
+                            f"出力回数を更新しました (現在: {channel.output_count}回目)",
+                        )
+                    return True, "出力回数を更新しました"
                 else:
                     return False, "指定されたチャンネルが見つかりません"
 
@@ -326,18 +314,26 @@ class ChannelDB:
         Returns:
             チャンネル情報（見つからない場合はNone）
         """
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.execute(
-                """
-                SELECT id, url, channel_id, channel_name, thumbnail_url, registered_at, output_count 
-                FROM youtube_channels 
-                WHERE channel_id = ?
-            """,
-                (channel_id,),
-            )
-            row = cursor.fetchone()
-            return dict(row) if row else None
+        with get_session() as session:
+            channel = session.execute(
+                select(YouTubeChannel).where(YouTubeChannel.channel_id == channel_id)
+            ).scalar_one_or_none()
+
+            if channel:
+                return {
+                    "id": channel.id,
+                    "url": channel.url,
+                    "channel_id": channel.channel_id,
+                    "channel_name": channel.channel_name,
+                    "thumbnail_url": channel.thumbnail_url,
+                    "registered_at": (
+                        channel.registered_at.isoformat()
+                        if channel.registered_at
+                        else None
+                    ),
+                    "output_count": channel.output_count,
+                }
+            return None
 
     def get_channels_with_zero_output(self, output_count: int = 0) -> list[dict]:
         """
@@ -349,15 +345,30 @@ class ChannelDB:
         Returns:
             チャンネル情報のリスト
         """
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.execute(
-                """
-                SELECT id, url, channel_id, channel_name, thumbnail_url, registered_at, output_count 
-                FROM youtube_channels 
-                WHERE output_count = ?
-                ORDER BY registered_at DESC
-            """,
-                (output_count,),
+        with get_session() as session:
+            channels = (
+                session.execute(
+                    select(YouTubeChannel)
+                    .where(YouTubeChannel.output_count == output_count)
+                    .order_by(YouTubeChannel.registered_at.desc())
+                )
+                .scalars()
+                .all()
             )
-            return [dict(row) for row in cursor.fetchall()]
+
+            return [
+                {
+                    "id": channel.id,
+                    "url": channel.url,
+                    "channel_id": channel.channel_id,
+                    "channel_name": channel.channel_name,
+                    "thumbnail_url": channel.thumbnail_url,
+                    "registered_at": (
+                        channel.registered_at.isoformat()
+                        if channel.registered_at
+                        else None
+                    ),
+                    "output_count": channel.output_count,
+                }
+                for channel in channels
+            ]

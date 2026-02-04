@@ -11,14 +11,15 @@ import argparse
 from core.db_manager import SongVectorDB
 import os
 from colorama import Fore, Style, init
+from config import DB_CONFIGS
 
 # Windows用初期化
 init()
 
 # ========== DB初期化 ==========
-db_minimal = SongVectorDB(db_path="data/chroma_db_cos_minimal", distance_fn="cosine")
-db_balance = SongVectorDB(db_path="data/chroma_db_cos_balance", distance_fn="cosine")
-db_full = SongVectorDB(db_path="data/chroma_db_cos_full", distance_fn="cosine")
+db_minimal = SongVectorDB(collection_name="songs_minimal", distance_fn="cosine")
+db_balance = SongVectorDB(collection_name="songs_balanced", distance_fn="cosine")
+db_full = SongVectorDB(collection_name="songs_full", distance_fn="cosine")
 
 
 def find_song_by_keyword(db: SongVectorDB, keyword: str, limit: int = 10) -> list[str]:

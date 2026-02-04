@@ -21,6 +21,40 @@
             "program": "${workspaceFolder}/create_dl_script_from_yt.py",
             "args": ["--url","UC8N92Ar6y9OpuXbtpiSL2dg"],
             "console": "integratedTerminal"
+        },
+        {
+            "name": "Streamlit: Main App",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "streamlit",
+            "args": [
+                "run",
+                "${workspaceFolder}/app.py",
+                "--server.port",
+                "8501"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            }
+        },
+        {
+            "name": "Streamlit: 曲調おすすめプレイリスト",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "streamlit",
+            "args": [
+                "run",
+                "${workspaceFolder}/pages/1_🔍_曲調おすすめプレイリスト.py",
+                "--server.port",
+                "8502"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            }
         }
     ]
 }

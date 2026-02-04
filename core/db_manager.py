@@ -3,6 +3,7 @@ ChromaDB を使ったベクトルDB操作モジュール
 """
 
 import chromadb
+import os
 from pathlib import Path
 from typing import Literal
 
@@ -16,23 +17,39 @@ class SongVectorDB:
 
     def __init__(
         self,
-        db_path: str = "./data/chroma",
+        db_path: str | None = None,
         collection_name: str = "songs",
         distance_fn: DistanceFunction = "cosine",
+        use_remote: bool = True,
     ):
         """
         Args:
-            db_path: ChromaDBの永続化先パス
+            db_path: ChromaDBの永続化先パス（use_remote=Falseの場合のみ使用）
             collection_name: コレクション名
             distance_fn: 距離関数 ("l2", "cosine", "ip")
                 - l2: ユークリッド距離（位置の近さ）
                 - cosine: コサイン距離（向きの近さ、0〜2）
                 - ip: 内積（類似度、大きいほど近い）
+            use_remote: リモートのChromaDBサーバーを使用するか（デフォルト: True）
         """
-        # ディレクトリがなければ作成
-        Path(db_path).mkdir(parents=True, exist_ok=True)
+        self.use_remote = use_remote
 
-        self.client = chromadb.PersistentClient(path=db_path)
+        if use_remote:
+            # リモートChromaDBサーバーに接続
+            chroma_host = os.getenv("CHROMA_HOST", "localhost")
+            chroma_port = int(os.getenv("CHROMA_PORT", "8000"))
+            self.client = chromadb.HttpClient(
+                host=chroma_host,
+                port=chroma_port,
+            )
+        else:
+            # ローカルファイルベースのChromaDB（後方互換性のため残す）
+            if db_path is None:
+                db_path = "./data/chroma"
+            # ディレクトリがなければ作成
+            Path(db_path).mkdir(parents=True, exist_ok=True)
+            self.client = chromadb.PersistentClient(path=db_path)
+
         self.distance_fn = distance_fn
         self.collection = self.client.get_or_create_collection(
             name=collection_name,
@@ -59,6 +76,50 @@ class SongVectorDB:
             metadatas=[metadata] if metadata else None,
         )
 
+    def add_songs(
+        self,
+        song_ids: list[str],
+        embeddings: list[list[float]],
+        metadatas: list[dict] | None = None,
+    ) -> None:
+        """
+        複数の楽曲を一括でDBに登録する（バルクインサート）
+
+        Args:
+            song_ids: 楽曲IDのリスト
+            embeddings: 音声特徴量ベクトルのリスト
+            metadatas: 付加情報のリスト（オプション）
+        """
+        if not song_ids:
+            return
+
+        self.collection.add(
+            ids=song_ids,
+            embeddings=embeddings,
+            metadatas=metadatas if metadatas else None,
+        )
+
+    def get_songs(self, song_ids: list[str], include_embedding: bool = False) -> dict:
+        """
+        複数のIDで楽曲を一括取得する（バルククエリ）
+
+        Args:
+            song_ids: 楽曲IDのリスト
+            include_embedding: embeddingを含めるか（デフォルトFalse）
+
+        Returns:
+            楽曲情報の辞書（ids, embeddings, metadatas）
+        """
+        if not song_ids:
+            return {"ids": [], "embeddings": [], "metadatas": []}
+
+        include = ["metadatas"]
+        if include_embedding:
+            include.append("embeddings")
+
+        result = self.collection.get(ids=song_ids, include=include)  # type: ignore
+        return result
+
     def search_similar(self, query_embedding: list[float], n_results: int = 5) -> dict:
         """
         類似楽曲を検索する
@@ -75,22 +136,39 @@ class SongVectorDB:
         )
         return results
 
-    def get_song(self, song_id: str, include_embedding: bool = True) -> dict | None:
+    def get_song(
+        self, song_id: str, include_embedding: bool = True, max_retries: int = 3
+    ) -> dict | None:
         """
         IDで楽曲を取得する
 
         Args:
             song_id: 楽曲ID
             include_embedding: embeddingを含めるか（デフォルトTrue）
+            max_retries: エラー時の最大リトライ回数
 
         Returns:
             楽曲情報（見つからない場合はNone）
         """
+        import time
+
         include = ["metadatas"]
         if include_embedding:
             include.append("embeddings")
 
-        result = self.collection.get(ids=[song_id], include=include)  # type: ignore
+        for attempt in range(max_retries):
+            try:
+                result = self.collection.get(ids=[song_id], include=include)  # type: ignore
+                break
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    time.sleep(0.5 * (attempt + 1))  # 指数バックオフ
+                    continue
+                # 最後のリトライでも失敗した場合はNoneを返す（未登録扱い）
+                print(
+                    f"Warning: Failed to get song '{song_id}' after {max_retries} retries: {e}"
+                )
+                return None
         if result["ids"]:
             # embeddingsの存在チェック（配列なのでNoneかどうかで判定）
             embeddings = result.get("embeddings")

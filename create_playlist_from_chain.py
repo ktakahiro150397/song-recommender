@@ -150,8 +150,13 @@ def chain_search_to_list(
     print(f"   取得曲数: {n_songs}, DB数: {len(dbs)}")
     print(f"{'='*60}")
 
-    # 開始曲の存在確認
-    exist_song = dbs[0].get_song(song_id=current_song_id)
+    # 開始曲の存在確認（全てのDBで確認）
+    exist_song = None
+    for db in dbs:
+        exist_song = db.get_song(song_id=current_song_id)
+        if exist_song is not None:
+            break
+
     if exist_song is None:
         print(f"❌ 開始曲 {current_song_id} がDBに見つかりません。")
         return []
@@ -230,7 +235,12 @@ def run_playlist_creation(
 
     # 1. DBを初期化
     print("\n📂 DBを読み込み中...")
-    dbs = [SongVectorDB(db_path=path, distance_fn="cosine") for path in DB_PATHS]
+    from config import DB_CONFIGS
+
+    dbs = [
+        SongVectorDB(collection_name=cfg["collection"], distance_fn="cosine")
+        for cfg in DB_CONFIGS
+    ]
     print(f"   {len(dbs)}個のDBを読み込みました")
 
     # 2. 連鎖検索を実行

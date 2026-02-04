@@ -1,61 +1,24 @@
 """
-YouTube曲登録キュー管理用のSQLiteデータベース操作モジュール
+YouTube曲登録キュー管理用のMySQLデータベース操作モジュール
 
 Streamlitで登録されたYouTube動画URLを保存し、
 後からバッチ処理でダウンロード・DB登録を行う
 """
 
-import sqlite3
 import re
-from pathlib import Path
 from datetime import datetime
 from typing import Optional
+from sqlalchemy import select, update, delete, func
+from core.database import get_session, init_database
+from core.models import SongQueue
 
 
 class SongQueueDB:
     """YouTube曲登録キューを管理するクラス"""
 
-    def __init__(self, db_path: str = "./data/song_queue.db"):
-        """
-        Args:
-            db_path: SQLiteデータベースファイルのパス
-        """
-        # ディレクトリがなければ作成
-        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-
-        self.db_path = db_path
-        self._init_db()
-
-    def _init_db(self) -> None:
+    def __init__(self):
         """データベースとテーブルを初期化"""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS song_queue (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    video_id TEXT NOT NULL UNIQUE,
-                    url TEXT NOT NULL,
-                    title TEXT,
-                    status TEXT NOT NULL DEFAULT 'pending',
-                    registered_at TIMESTAMP NOT NULL,
-                    processed_at TIMESTAMP
-                )
-            """
-            )
-            # インデックスを作成
-            conn.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_status 
-                ON song_queue(status)
-            """
-            )
-            conn.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_registered_at 
-                ON song_queue(registered_at DESC)
-            """
-            )
-            conn.commit()
+        init_database()
 
     @staticmethod
     def extract_video_id(url: str) -> Optional[str]:
@@ -99,18 +62,29 @@ class SongQueueDB:
             return False, "無効なURLです。YouTubeの動画URLを入力してください", None
 
         try:
-            with sqlite3.connect(self.db_path) as conn:
-                conn.execute(
-                    """
-                    INSERT INTO song_queue (video_id, url, title, status, registered_at)
-                    VALUES (?, ?, ?, 'pending', ?)
-                """,
-                    (video_id, url, title, datetime.now()),
+            with get_session() as session:
+                # 既存チェック
+                existing = session.execute(
+                    select(SongQueue).where(SongQueue.video_id == video_id)
+                ).scalar_one_or_none()
+
+                if existing:
+                    return False, f"既に登録済みです: {video_id}", video_id
+
+                # 新規登録
+                song = SongQueue(
+                    video_id=video_id,
+                    url=url,
+                    title=title,
+                    status="pending",
+                    registered_at=datetime.now(),
                 )
-                conn.commit()
-            return True, f"登録しました: {video_id}", video_id
-        except sqlite3.IntegrityError:
-            return False, f"既に登録済みです: {video_id}", video_id
+                session.add(song)
+                session.commit()
+                return True, f"登録しました: {video_id}", video_id
+
+        except Exception as e:
+            return False, f"登録エラー: {str(e)}", video_id
 
     def get_pending_songs(self) -> list[dict]:
         """
@@ -119,17 +93,30 @@ class SongQueueDB:
         Returns:
             未処理の曲情報のリスト
         """
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.execute(
-                """
-                SELECT id, video_id, url, title, status, registered_at
-                FROM song_queue
-                WHERE status = 'pending'
-                ORDER BY registered_at ASC
-            """
+        with get_session() as session:
+            songs = (
+                session.execute(
+                    select(SongQueue)
+                    .where(SongQueue.status == "pending")
+                    .order_by(SongQueue.registered_at.asc())
+                )
+                .scalars()
+                .all()
             )
-            return [dict(row) for row in cursor.fetchall()]
+
+            return [
+                {
+                    "id": song.id,
+                    "video_id": song.video_id,
+                    "url": song.url,
+                    "title": song.title,
+                    "status": song.status,
+                    "registered_at": (
+                        song.registered_at.isoformat() if song.registered_at else None
+                    ),
+                }
+                for song in songs
+            ]
 
     def get_all_songs(self, limit: int = 100) -> list[dict]:
         """
@@ -141,18 +128,33 @@ class SongQueueDB:
         Returns:
             曲情報のリスト
         """
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.execute(
-                """
-                SELECT id, video_id, url, title, status, registered_at, processed_at
-                FROM song_queue
-                ORDER BY registered_at DESC
-                LIMIT ?
-            """,
-                (limit,),
+        with get_session() as session:
+            songs = (
+                session.execute(
+                    select(SongQueue)
+                    .order_by(SongQueue.registered_at.desc())
+                    .limit(limit)
+                )
+                .scalars()
+                .all()
             )
-            return [dict(row) for row in cursor.fetchall()]
+
+            return [
+                {
+                    "id": song.id,
+                    "video_id": song.video_id,
+                    "url": song.url,
+                    "title": song.title,
+                    "status": song.status,
+                    "registered_at": (
+                        song.registered_at.isoformat() if song.registered_at else None
+                    ),
+                    "processed_at": (
+                        song.processed_at.isoformat() if song.processed_at else None
+                    ),
+                }
+                for song in songs
+            ]
 
     def mark_as_processed(self, video_id: str) -> bool:
         """
@@ -164,17 +166,14 @@ class SongQueueDB:
         Returns:
             成功したかどうか
         """
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute(
-                """
-                UPDATE song_queue
-                SET status = 'processed', processed_at = ?
-                WHERE video_id = ?
-            """,
-                (datetime.now(), video_id),
+        with get_session() as session:
+            result = session.execute(
+                update(SongQueue)
+                .where(SongQueue.video_id == video_id)
+                .values(status="processed", processed_at=datetime.now())
             )
-            conn.commit()
-            return cursor.rowcount > 0
+            session.commit()
+            return result.rowcount > 0
 
     def mark_as_failed(self, video_id: str) -> bool:
         """
@@ -186,17 +185,14 @@ class SongQueueDB:
         Returns:
             成功したかどうか
         """
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute(
-                """
-                UPDATE song_queue
-                SET status = 'failed', processed_at = ?
-                WHERE video_id = ?
-            """,
-                (datetime.now(), video_id),
+        with get_session() as session:
+            result = session.execute(
+                update(SongQueue)
+                .where(SongQueue.video_id == video_id)
+                .values(status="failed", processed_at=datetime.now())
             )
-            conn.commit()
-            return cursor.rowcount > 0
+            session.commit()
+            return result.rowcount > 0
 
     def delete_song(self, video_id: str) -> bool:
         """
@@ -208,15 +204,12 @@ class SongQueueDB:
         Returns:
             成功したかどうか
         """
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute(
-                """
-                DELETE FROM song_queue WHERE video_id = ?
-            """,
-                (video_id,),
+        with get_session() as session:
+            result = session.execute(
+                delete(SongQueue).where(SongQueue.video_id == video_id)
             )
-            conn.commit()
-            return cursor.rowcount > 0
+            session.commit()
+            return result.rowcount > 0
 
     def get_counts(self) -> dict[str, int]:
         """
@@ -225,18 +218,18 @@ class SongQueueDB:
         Returns:
             {'pending': n, 'processed': n, 'failed': n, 'total': n}
         """
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute(
-                """
-                SELECT status, COUNT(*) as count
-                FROM song_queue
-                GROUP BY status
-            """
-            )
+        with get_session() as session:
+            results = session.execute(
+                select(SongQueue.status, func.count(SongQueue.id)).group_by(
+                    SongQueue.status
+                )
+            ).all()
+
             counts = {"pending": 0, "processed": 0, "failed": 0, "total": 0}
-            for row in cursor.fetchall():
-                counts[row[0]] = row[1]
-                counts["total"] += row[1]
+            for status, count in results:
+                counts[status] = count
+                counts["total"] += count
+
             return counts
 
     def reset_failed(self) -> int:
@@ -246,13 +239,11 @@ class SongQueueDB:
         Returns:
             更新した件数
         """
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute(
-                """
-                UPDATE song_queue
-                SET status = 'pending', processed_at = NULL
-                WHERE status = 'failed'
-            """
+        with get_session() as session:
+            result = session.execute(
+                update(SongQueue)
+                .where(SongQueue.status == "failed")
+                .values(status="pending", processed_at=None)
             )
-            conn.commit()
-            return cursor.rowcount
+            session.commit()
+            return result.rowcount

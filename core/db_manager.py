@@ -3,6 +3,7 @@ ChromaDB を使ったベクトルDB操作モジュール
 """
 
 import chromadb
+import os
 from pathlib import Path
 from typing import Literal
 
@@ -16,23 +17,39 @@ class SongVectorDB:
 
     def __init__(
         self,
-        db_path: str = "./data/chroma",
+        db_path: str | None = None,
         collection_name: str = "songs",
         distance_fn: DistanceFunction = "cosine",
+        use_remote: bool = True,
     ):
         """
         Args:
-            db_path: ChromaDBの永続化先パス
+            db_path: ChromaDBの永続化先パス（use_remote=Falseの場合のみ使用）
             collection_name: コレクション名
             distance_fn: 距離関数 ("l2", "cosine", "ip")
                 - l2: ユークリッド距離（位置の近さ）
                 - cosine: コサイン距離（向きの近さ、0〜2）
                 - ip: 内積（類似度、大きいほど近い）
+            use_remote: リモートのChromaDBサーバーを使用するか（デフォルト: True）
         """
-        # ディレクトリがなければ作成
-        Path(db_path).mkdir(parents=True, exist_ok=True)
+        self.use_remote = use_remote
 
-        self.client = chromadb.PersistentClient(path=db_path)
+        if use_remote:
+            # リモートChromaDBサーバーに接続
+            chroma_host = os.getenv("CHROMA_HOST", "localhost")
+            chroma_port = int(os.getenv("CHROMA_PORT", "8000"))
+            self.client = chromadb.HttpClient(
+                host=chroma_host,
+                port=chroma_port,
+            )
+        else:
+            # ローカルファイルベースのChromaDB（後方互換性のため残す）
+            if db_path is None:
+                db_path = "./data/chroma"
+            # ディレクトリがなければ作成
+            Path(db_path).mkdir(parents=True, exist_ok=True)
+            self.client = chromadb.PersistentClient(path=db_path)
+
         self.distance_fn = distance_fn
         self.collection = self.client.get_or_create_collection(
             name=collection_name,
@@ -58,6 +75,50 @@ class SongVectorDB:
             embeddings=[embedding],
             metadatas=[metadata] if metadata else None,
         )
+
+    def add_songs(
+        self,
+        song_ids: list[str],
+        embeddings: list[list[float]],
+        metadatas: list[dict] | None = None,
+    ) -> None:
+        """
+        複数の楽曲を一括でDBに登録する（バルクインサート）
+
+        Args:
+            song_ids: 楽曲IDのリスト
+            embeddings: 音声特徴量ベクトルのリスト
+            metadatas: 付加情報のリスト（オプション）
+        """
+        if not song_ids:
+            return
+
+        self.collection.add(
+            ids=song_ids,
+            embeddings=embeddings,
+            metadatas=metadatas if metadatas else None,
+        )
+
+    def get_songs(self, song_ids: list[str], include_embedding: bool = False) -> dict:
+        """
+        複数のIDで楽曲を一括取得する（バルククエリ）
+
+        Args:
+            song_ids: 楽曲IDのリスト
+            include_embedding: embeddingを含めるか（デフォルトFalse）
+
+        Returns:
+            楽曲情報の辞書（ids, embeddings, metadatas）
+        """
+        if not song_ids:
+            return {"ids": [], "embeddings": [], "metadatas": []}
+
+        include = ["metadatas"]
+        if include_embedding:
+            include.append("embeddings")
+
+        result = self.collection.get(ids=song_ids, include=include)  # type: ignore
+        return result
 
     def search_similar(self, query_embedding: list[float], n_results: int = 5) -> dict:
         """

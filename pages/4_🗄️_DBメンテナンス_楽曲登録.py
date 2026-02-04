@@ -178,7 +178,9 @@ audio_files = get_audio_files_recursive(UPLOAD_DATA_DIR)
 
 if not audio_files:
     st.warning("⚠️ 登録可能な音声ファイルが見つかりません。")
-    st.info("先に「📤 楽曲ファイルアップロード」ページでファイルをアップロードしてください。")
+    st.info(
+        "先に「📤 楽曲ファイルアップロード」ページでファイルをアップロードしてください。"
+    )
     st.stop()
 
 st.success(f"✅ {len(audio_files)} 件の音声ファイルが見つかりました。")
@@ -214,23 +216,25 @@ st.subheader("🚀 登録実行")
 if st.button("🎵 ベクトルDBに登録を開始", type="primary", use_container_width=True):
     # DB・抽出器を初期化
     dbs_and_extractors = []
-    
+
     with st.spinner("DBを初期化中..."):
         for config in DB_CONFIGS:
-            db = SongVectorDB(db_path=config["path"], distance_fn="cosine")
+            db = SongVectorDB(
+                collection_name=config["collection"], distance_fn="cosine"
+            )
             extractor = FeatureExtractor(duration=AUDIO_DURATION, mode=config["mode"])
             dbs_and_extractors.append((db, extractor, config["mode"]))
-    
+
     st.success("✅ DB初期化完了")
-    
+
     # ログ表示エリア
     log_container = st.container()
     status_text = st.empty()
     progress_bar = st.progress(0)
-    
+
     total_added = 0
     total_skipped = 0
-    
+
     # ThreadPoolで並列処理
     with ThreadPoolExecutor(max_workers=len(DB_CONFIGS)) as executor:
         for idx, (file_path, filename, normalized_dir) in enumerate(audio_files):
@@ -238,44 +242,51 @@ if st.button("🎵 ベクトルDBに登録を開始", type="primary", use_contai
             progress = (idx + 1) / len(audio_files)
             progress_bar.progress(progress)
             status_text.text(f"処理中... ({idx + 1}/{len(audio_files)}): {filename}")
-            
+
             # 最初のDBでチェック（登録済みならスキップ）
             if dbs_and_extractors[0][0].get_song(song_id=filename) is not None:
                 total_skipped += 1
                 with log_container:
-                    st.write(f"⏭️ **[{idx + 1}/{len(audio_files)}]** スキップ（登録済み）: `{filename}`")
+                    st.write(
+                        f"⏭️ **[{idx + 1}/{len(audio_files)}]** スキップ（登録済み）: `{filename}`"
+                    )
                 continue
-            
+
             # 全DBに並列で登録
             def process_for_db(db_ext_mode):
                 db, extractor, mode = db_ext_mode
                 return add_song(db, extractor, file_path, filename, normalized_dir)
-            
+
             futures = [
-                executor.submit(process_for_db, item)
-                for item in dbs_and_extractors
+                executor.submit(process_for_db, item) for item in dbs_and_extractors
             ]
             results = [f.result() for f in as_completed(futures)]
-            
+
             if any(results):
                 total_added += 1
                 with log_container:
-                    st.write(f"✅ **[{idx + 1}/{len(audio_files)}]** 登録完了: `{filename}`")
-                    st.caption(f"   📁 {normalized_dir} | 🎵 {extract_song_title(filename)}")
+                    st.write(
+                        f"✅ **[{idx + 1}/{len(audio_files)}]** 登録完了: `{filename}`"
+                    )
+                    st.caption(
+                        f"   📁 {normalized_dir} | 🎵 {extract_song_title(filename)}"
+                    )
             else:
                 total_skipped += 1
                 with log_container:
-                    st.write(f"⏭️ **[{idx + 1}/{len(audio_files)}]** スキップ: `{filename}`")
-    
+                    st.write(
+                        f"⏭️ **[{idx + 1}/{len(audio_files)}]** スキップ: `{filename}`"
+                    )
+
     # 完了
     progress_bar.progress(1.0)
     status_text.empty()
-    
+
     st.divider()
-    
+
     # 結果サマリー
     st.subheader("📊 登録結果")
-    
+
     col1, col2, col3 = st.columns(3)
     with col1:
         st.metric("新規登録", f"{total_added} 曲")
@@ -284,7 +295,7 @@ if st.button("🎵 ベクトルDBに登録を開始", type="primary", use_contai
     with col3:
         total_in_db = dbs_and_extractors[0][0].count()
         st.metric("DB総登録数", f"{total_in_db} 曲")
-    
+
     if total_added > 0:
         st.success(f"🎉 登録が完了しました！ {total_added} 曲を新規登録しました。")
     else:

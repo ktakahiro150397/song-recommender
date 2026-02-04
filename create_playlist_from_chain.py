@@ -235,7 +235,12 @@ def run_playlist_creation(
 
     # 1. DBを初期化
     print("\n📂 DBを読み込み中...")
-    dbs = [SongVectorDB(db_path=path, distance_fn="cosine") for path in DB_PATHS]
+    from config import DB_CONFIGS
+
+    dbs = [
+        SongVectorDB(collection_name=cfg["collection"], distance_fn="cosine")
+        for cfg in DB_CONFIGS
+    ]
     print(f"   {len(dbs)}個のDBを読み込みました")
 
     # 2. 連鎖検索を実行

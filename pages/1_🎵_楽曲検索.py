@@ -76,10 +76,12 @@ def style_distance_column(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ========== 設定 ==========
+from config import DB_CONFIGS
+
 DB_PATHS = {
-    "Full": "data/chroma_db_cos_full",
-    "Balance": "data/chroma_db_cos_balance",
-    "Minimal": "data/chroma_db_cos_minimal",
+    "Full": "songs_full",
+    "Balance": "songs_balanced",
+    "Minimal": "songs_minimal",
 }
 
 # ========== ユーティリティ関数 ==========
@@ -121,6 +123,38 @@ def find_song_by_keyword_with_metadata(
     return matches
 
 
+def get_recently_added_songs(
+    db: SongVectorDB, limit: int = 50
+) -> list[tuple[str, dict]]:
+    """最近追加された楽曲を取得（registered_atでソート）
+
+    Args:
+        db: データベースインスタンス
+        limit: 最大取得件数
+
+    Returns:
+        (song_id, metadata)のタプルのリスト（新しい順）
+    """
+    # 全曲取得（limit=10000で十分な数を取得）
+    all_songs = db.list_all(limit=10000)
+
+    # メタデータと曲IDをペアにしてリスト化
+    song_list = []
+    for idx, song_id in enumerate(all_songs["ids"]):
+        metadata = all_songs["metadatas"][idx] if all_songs["metadatas"] else {}
+        song_list.append((song_id, metadata))
+
+    # registered_atでソート（新しい順）
+    # registered_atが存在しない場合は古い扱いとする
+    sorted_songs = sorted(
+        song_list,
+        key=lambda x: x[1].get("registered_at", "1900-01-01T00:00:00"),
+        reverse=True,  # 新しい順
+    )
+
+    return sorted_songs[:limit]
+
+
 # ========== メイン画面 ==========
 
 st.set_page_config(
@@ -141,12 +175,16 @@ if "playlist_creating" not in st.session_state:
     st.session_state.playlist_creating = False
 if "selected_songs" not in st.session_state:
     st.session_state.selected_songs = []
+if "matches" not in st.session_state:
+    st.session_state.matches = None
+if "last_keyword" not in st.session_state:
+    st.session_state.last_keyword = None
 
 # サイドバー設定
 st.sidebar.header("検索設定")
 
-# DB選択
-available_dbs = {name: path for name, path in DB_PATHS.items() if Path(path).exists()}
+# DB選択（リモートChromaDBサーバーを使用するため、ファイル存在チェックは不要）
+available_dbs = DB_PATHS  # すべてのDBを利用可能として扱う
 
 if not available_dbs:
     st.error("利用可能なDBが見つかりません。")
@@ -157,8 +195,8 @@ selected_db_name = st.sidebar.selectbox(
     options=list(available_dbs.keys()),
     index=0,
 )
-db_path = available_dbs[selected_db_name]
-db = SongVectorDB(db_path=db_path, distance_fn="cosine")
+collection_name = available_dbs[selected_db_name]
+db = SongVectorDB(collection_name=collection_name, distance_fn="cosine")
 
 # 検索結果の最大表示数
 max_results = st.sidebar.number_input(
@@ -173,7 +211,7 @@ max_results = st.sidebar.number_input(
 # メインコンテンツ
 st.subheader("🔍 楽曲検索")
 
-col1, col2 = st.columns([3, 1])
+col1, col2, col3 = st.columns([3, 1, 1])
 with col1:
     keyword = st.text_input(
         "検索キーワード（曲名、ID、source_dir、空欄で全件）",
@@ -182,16 +220,34 @@ with col1:
     )
 with col2:
     search_button = st.button("🔍 検索", type="primary", use_container_width=True)
+with col3:
+    recommend_button = st.button(
+        "✨ おすすめ曲", type="secondary", use_container_width=True
+    )
+
+# 初回表示時にデフォルトでおすすめ曲を表示
+if st.session_state.matches is None and st.session_state.last_keyword is None:
+    with st.spinner("おすすめ曲を取得中..."):
+        st.session_state.matches = get_recently_added_songs(db, limit=max_results)
+        st.session_state.last_keyword = "__recommend__"
 
 # 検索実行
-if search_button or "last_keyword" in st.session_state:
-    # キーワードが空でも検索可能にする
-    current_keyword = keyword if keyword else ""
-
-    if (
+if search_button or recommend_button or "last_keyword" in st.session_state:
+    # おすすめボタンが押された場合は、最近追加された曲を表示
+    if recommend_button:
+        st.session_state.last_keyword = "__recommend__"
+        with st.spinner("おすすめ曲を取得中..."):
+            st.session_state.matches = get_recently_added_songs(db, limit=max_results)
+    # 検索ボタンが押された、またはキーワードが変更された場合
+    elif search_button or (
         "last_keyword" not in st.session_state
-        or st.session_state.last_keyword != current_keyword
+        or (
+            st.session_state.last_keyword != keyword
+            and st.session_state.last_keyword != "__recommend__"
+        )
     ):
+        # キーワードが空でも検索可能にする
+        current_keyword = keyword if keyword else ""
         st.session_state.last_keyword = current_keyword
         st.session_state.matches = find_song_by_keyword_with_metadata(
             db, current_keyword, limit=10000
@@ -199,15 +255,21 @@ if search_button or "last_keyword" in st.session_state:
 
     matches = st.session_state.matches
 
+    # 表示タイトルを変更
+    if st.session_state.last_keyword == "__recommend__":
+        st.info("✨ 最近追加された楽曲を表示しています")
+
     if matches:
         st.success(f"✅ {len(matches)}件見つかりました")
-        
-        st.info("💡 **使い方:** 下の表で曲の左側にある「選択」列のチェックボックスをクリックして、類似曲検索やプレイリスト作成に使用する曲を選択してください。")
+
+        st.info(
+            "💡 **使い方:** 下の表で曲の左側にある「選択」列のチェックボックスをクリックして、類似曲検索やプレイリスト作成に使用する曲を選択してください。"
+        )
 
         # 選択状態を初期化
         if "selected_song_ids" not in st.session_state:
             st.session_state.selected_song_ids = set()
-        
+
         # データフレームとして表示（選択可能）
         df_data = []
         for idx, (song_id, metadata) in enumerate(matches, 1):
@@ -238,19 +300,19 @@ if search_button or "last_keyword" in st.session_state:
                     default=False,
                 )
             },
-            key="search_results_table"
+            key="search_results_table",
         )
-        
+
         # 選択された曲を更新
         selected_songs = []
         for idx, row in edited_df.iterrows():
             if row["選択"]:
                 song_id, _ = matches[idx]
                 selected_songs.append(song_id)
-        
+
         st.session_state.selected_songs = selected_songs
         st.session_state.selected_song_ids = set(selected_songs)
-        
+
         # 選択された曲を目立つように表示
         if st.session_state.selected_songs:
             st.success(f"✨ **選択中の曲:** {len(st.session_state.selected_songs)}曲")
@@ -261,14 +323,18 @@ if search_button or "last_keyword" in st.session_state:
         # 詳細表示用の楽曲選択
         st.divider()
         st.subheader("🎯 類似曲検索（各DBから）")
-        
+
         # 選択された曲がある場合はその曲を使用、なければ最初の曲
         if st.session_state.selected_songs:
             selected_song = st.session_state.selected_songs[0]
             if len(st.session_state.selected_songs) > 1:
-                st.info(f"💡 複数の曲が選択されています。最初に選択された曲「{selected_song}」を使用します")
+                st.info(
+                    f"💡 複数の曲が選択されています。最初に選択された曲「{selected_song}」を使用します"
+                )
             else:
-                st.info(f"💡 選択された曲「{selected_song}」に類似している曲を検索します")
+                st.info(
+                    f"💡 選択された曲「{selected_song}」に類似している曲を検索します"
+                )
         else:
             selected_song = matches[0][0]
             st.warning("💡 曲が選択されていません。検索結果の最初の曲を使用します")
@@ -286,13 +352,13 @@ if search_button or "last_keyword" in st.session_state:
             with st.spinner("類似曲を検索中..."):
                 # 3つのDBをそれぞれ初期化（正しいパスと名前の対応）
                 db_full = SongVectorDB(
-                    db_path="data/chroma_db_cos_full", distance_fn="cosine"
+                    collection_name="songs_full", distance_fn="cosine"
                 )
                 db_balance = SongVectorDB(
-                    db_path="data/chroma_db_cos_balance", distance_fn="cosine"
+                    collection_name="songs_balanced", distance_fn="cosine"
                 )
                 db_minimal = SongVectorDB(
-                    db_path="data/chroma_db_cos_minimal", distance_fn="cosine"
+                    collection_name="songs_minimal", distance_fn="cosine"
                 )
 
                 dbs = [
@@ -429,13 +495,13 @@ if search_button or "last_keyword" in st.session_state:
             with st.spinner("連鎖検索中..."):
                 # 全てのDBsを初期化（検索には全てのDBを使用）
                 db_full = SongVectorDB(
-                    db_path="data/chroma_db_cos_full", distance_fn="cosine"
+                    collection_name="songs_full", distance_fn="cosine"
                 )
                 db_balance = SongVectorDB(
-                    db_path="data/chroma_db_cos_balance", distance_fn="cosine"
+                    collection_name="songs_balanced", distance_fn="cosine"
                 )
                 db_minimal = SongVectorDB(
-                    db_path="data/chroma_db_cos_minimal", distance_fn="cosine"
+                    collection_name="songs_minimal", distance_fn="cosine"
                 )
 
                 dbs = [db_full, db_balance, db_minimal]

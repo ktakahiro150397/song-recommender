@@ -3,8 +3,8 @@
 maxUploadSize = 10
 # 外部アクセス用設定
 headless = true
-address = "0.0.0.0"
-port = 8501
+address = "localhost"
+port = 8500
 # CORS設定（cloudflared経由のアクセスを許可）
 enableCORS = false
 enableXsrfProtection = false

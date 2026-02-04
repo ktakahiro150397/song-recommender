@@ -9,6 +9,10 @@ from contextlib import contextmanager
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import QueuePool
+from dotenv import load_dotenv
+
+# .envファイルを読み込み
+load_dotenv()
 
 
 # データベース接続URL

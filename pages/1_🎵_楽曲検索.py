@@ -175,6 +175,8 @@ if "playlist_creating" not in st.session_state:
     st.session_state.playlist_creating = False
 if "selected_songs" not in st.session_state:
     st.session_state.selected_songs = []
+if "selected_song_id" not in st.session_state:
+    st.session_state.selected_song_id = None
 if "matches" not in st.session_state:
     st.session_state.matches = None
 if "last_keyword" not in st.session_state:
@@ -263,19 +265,14 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
         st.success(f"✅ {len(matches)}件見つかりました")
 
         st.info(
-            "💡 **使い方:** 下の表で曲の左側にある「選択」列のチェックボックスをクリックして、類似曲検索やプレイリスト作成に使用する曲を選択してください（1曲のみ選択可能）。"
+            "💡 **使い方:** 下の表で曲の行をクリックして、類似曲検索やプレイリスト作成に使用する曲を選択してください。"
         )
 
-        # 選択状態を初期化
-        if "selected_song_id" not in st.session_state:
-            st.session_state.selected_song_id = None
-
-        # データフレームとして表示（選択可能）
+        # データフレームとして表示
         df_data = []
         for idx, (song_id, metadata) in enumerate(matches, 1):
             df_data.append(
                 {
-                    "選択": song_id == st.session_state.selected_song_id,
                     "No.": idx,
                     "ファイル名": song_id,
                     "source_dir": metadata.get("source_dir", "") if metadata else "",
@@ -287,48 +284,32 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
 
         df = pd.DataFrame(df_data)
 
-        # data_editorを使用してチェックボックス付きテーブルを表示
-        edited_df = st.data_editor(
+        # dataframeで行選択可能なテーブルを表示
+        event = st.dataframe(
             df,
             use_container_width=True,
             hide_index=True,
-            disabled=["No.", "ファイル名", "source_dir", "registered_at"],
-            column_config={
-                "選択": st.column_config.CheckboxColumn(
-                    "選択",
-                    help="類似曲検索やプレイリスト作成に使用する曲を選択（1曲のみ）",
-                    default=False,
-                )
-            },
+            selection_mode="single-row",
+            on_select="rerun",
             key="search_results_table",
         )
 
-        # 選択された曲を更新（1つのみ選択可能にする）
-        newly_selected = None
-        for idx, row in edited_df.iterrows():
-            if row["選択"]:
-                song_id, _ = matches[idx]
-                # 以前選択されていなかった曲がチェックされた場合、それを新しい選択とする
-                if song_id != st.session_state.selected_song_id:
-                    newly_selected = song_id
-                    break
+        # 選択された曲を更新
+        selected_song_id = None
+        if event.selection and event.selection.rows:
+            selected_idx = event.selection.rows[0]
+            if 0 <= selected_idx < len(matches):
+                selected_song_id, _ = matches[selected_idx]
 
-        # 新しく選択された曲がある場合は更新、全てチェックが外された場合はクリア
-        if newly_selected:
-            st.session_state.selected_song_id = newly_selected
-        elif not any(edited_df["選択"]):
-            st.session_state.selected_song_id = None
-
-        # 選択された曲をリストとして保持（後方互換性のため）
+        # セッション状態を更新
+        st.session_state.selected_song_id = selected_song_id
         st.session_state.selected_songs = (
-            [st.session_state.selected_song_id]
-            if st.session_state.selected_song_id
-            else []
+            [selected_song_id] if selected_song_id else []
         )
 
         # 選択された曲を目立つように表示
-        if st.session_state.selected_song_id:
-            st.success(f"✨ **選択中の曲:** {st.session_state.selected_song_id}")
+        if selected_song_id:
+            st.success(f"✨ **選択中の曲:** {selected_song_id}")
         else:
             st.info("💡 曲が選択されていません")
 

@@ -263,19 +263,19 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
         st.success(f"✅ {len(matches)}件見つかりました")
 
         st.info(
-            "💡 **使い方:** 下の表で曲の左側にある「選択」列のチェックボックスをクリックして、類似曲検索やプレイリスト作成に使用する曲を選択してください。"
+            "💡 **使い方:** 下の表で曲の左側にある「選択」列のチェックボックスをクリックして、類似曲検索やプレイリスト作成に使用する曲を選択してください（1曲のみ選択可能）。"
         )
 
         # 選択状態を初期化
-        if "selected_song_ids" not in st.session_state:
-            st.session_state.selected_song_ids = set()
+        if "selected_song_id" not in st.session_state:
+            st.session_state.selected_song_id = None
 
         # データフレームとして表示（選択可能）
         df_data = []
         for idx, (song_id, metadata) in enumerate(matches, 1):
             df_data.append(
                 {
-                    "選択": song_id in st.session_state.selected_song_ids,
+                    "選択": song_id == st.session_state.selected_song_id,
                     "No.": idx,
                     "ファイル名": song_id,
                     "source_dir": metadata.get("source_dir", "") if metadata else "",
@@ -296,45 +296,50 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
             column_config={
                 "選択": st.column_config.CheckboxColumn(
                     "選択",
-                    help="類似曲検索やプレイリスト作成に使用する曲を選択",
+                    help="類似曲検索やプレイリスト作成に使用する曲を選択（1曲のみ）",
                     default=False,
                 )
             },
             key="search_results_table",
         )
 
-        # 選択された曲を更新
-        selected_songs = []
+        # 選択された曲を更新（1つのみ選択可能にする）
+        newly_selected = None
         for idx, row in edited_df.iterrows():
             if row["選択"]:
                 song_id, _ = matches[idx]
-                selected_songs.append(song_id)
+                # 以前選択されていなかった曲がチェックされた場合、それを新しい選択とする
+                if song_id != st.session_state.selected_song_id:
+                    newly_selected = song_id
+                    break
 
-        st.session_state.selected_songs = selected_songs
-        st.session_state.selected_song_ids = set(selected_songs)
+        # 新しく選択された曲がある場合は更新、全てチェックが外された場合はクリア
+        if newly_selected:
+            st.session_state.selected_song_id = newly_selected
+        elif not any(edited_df["選択"]):
+            st.session_state.selected_song_id = None
+
+        # 選択された曲をリストとして保持（後方互換性のため）
+        st.session_state.selected_songs = (
+            [st.session_state.selected_song_id]
+            if st.session_state.selected_song_id
+            else []
+        )
 
         # 選択された曲を目立つように表示
-        if st.session_state.selected_songs:
-            st.success(f"✨ **選択中の曲:** {len(st.session_state.selected_songs)}曲")
-            with st.expander("選択された曲を表示", expanded=True):
-                for idx, song in enumerate(st.session_state.selected_songs, 1):
-                    st.write(f"{idx}. {song}")
+        if st.session_state.selected_song_id:
+            st.success(f"✨ **選択中の曲:** {st.session_state.selected_song_id}")
+        else:
+            st.info("💡 曲が選択されていません")
 
         # 詳細表示用の楽曲選択
         st.divider()
         st.subheader("🎯 類似曲検索（各DBから）")
 
         # 選択された曲がある場合はその曲を使用、なければ最初の曲
-        if st.session_state.selected_songs:
-            selected_song = st.session_state.selected_songs[0]
-            if len(st.session_state.selected_songs) > 1:
-                st.info(
-                    f"💡 複数の曲が選択されています。最初に選択された曲「{selected_song}」を使用します"
-                )
-            else:
-                st.info(
-                    f"💡 選択された曲「{selected_song}」に類似している曲を検索します"
-                )
+        if st.session_state.selected_song_id:
+            selected_song = st.session_state.selected_song_id
+            st.info(f"💡 選択された曲「{selected_song}」に類似している曲を検索します")
         else:
             selected_song = matches[0][0]
             st.warning("💡 曲が選択されていません。検索結果の最初の曲を使用します")

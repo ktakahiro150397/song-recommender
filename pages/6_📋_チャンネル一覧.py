@@ -35,6 +35,40 @@ if not channels:
     st.info("📭 まだチャンネルが登録されていません")
     st.markdown("「YouTubeチャンネル登録」ページからチャンネルを登録してください")
 else:
+    # エクスポート機能
+    st.markdown("### 💾 データエクスポート")
+
+    col_export1, col_export2 = st.columns(2)
+
+    with col_export1:
+        if st.button("📄 CSV形式でダウンロード", use_container_width=True):
+            if channels:
+                # DataFrameに変換
+                df = pd.DataFrame(channels)
+                csv = df.to_csv(index=False, encoding="utf-8-sig")
+
+                st.download_button(
+                    label="⬇️ CSVファイルをダウンロード",
+                    data=csv,
+                    file_name=f"youtube_channels_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                )
+            else:
+                st.warning("エクスポートするデータがありません")
+
+    with col_export2:
+        if st.button("📋 URLリストをコピー", use_container_width=True):
+            if channels:
+                # URLのみを抽出してテキスト形式に
+                url_list = "\n".join([ch["url"] for ch in channels])
+                st.code(url_list, language="text")
+                st.info("上記のテキストをコピーしてご利用ください")
+            else:
+                st.warning("コピーするデータがありません")
+
+    st.markdown("---")
+
     # 統計情報を表示
     st.markdown(f"### 📊 統計情報")
     col1, col2, col3 = st.columns(3)
@@ -327,39 +361,6 @@ else:
             st.success(
                 f"✅ すべてのチャンネル ({len(filtered_channels)}件) を表示しました"
             )
-
-# エクスポート機能
-st.markdown("---")
-st.markdown("### 💾 データエクスポート")
-
-col_export1, col_export2 = st.columns(2)
-
-with col_export1:
-    if st.button("📄 CSV形式でダウンロード", use_container_width=True):
-        if channels:
-            # DataFrameに変換
-            df = pd.DataFrame(channels)
-            csv = df.to_csv(index=False, encoding="utf-8-sig")
-
-            st.download_button(
-                label="⬇️ CSVファイルをダウンロード",
-                data=csv,
-                file_name=f"youtube_channels_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                mime="text/csv",
-                use_container_width=True,
-            )
-        else:
-            st.warning("エクスポートするデータがありません")
-
-with col_export2:
-    if st.button("📋 URLリストをコピー", use_container_width=True):
-        if channels:
-            # URLのみを抽出してテキスト形式に
-            url_list = "\n".join([ch["url"] for ch in channels])
-            st.code(url_list, language="text")
-            st.info("上記のテキストをコピーしてご利用ください")
-        else:
-            st.warning("コピーするデータがありません")
 
 # フッター
 st.markdown("---")

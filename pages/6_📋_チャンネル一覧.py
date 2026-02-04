@@ -98,13 +98,16 @@ else:
     else:
         # 無限スクロール設定
         items_per_page = 10
-        
+
         # セッションステートの初期化（検索条件が変わったらリセット）
         current_search_key = f"{search_query}_{sort_order}"
-        if "last_search_key" not in st.session_state or st.session_state.last_search_key != current_search_key:
+        if (
+            "last_search_key" not in st.session_state
+            or st.session_state.last_search_key != current_search_key
+        ):
             st.session_state.items_to_show = items_per_page
             st.session_state.last_search_key = current_search_key
-        
+
         # 表示範囲を計算
         end_idx = min(st.session_state.items_to_show, len(filtered_channels))
         page_channels = filtered_channels[0:end_idx]
@@ -240,7 +243,7 @@ else:
         # 無限スクロール: 自動読み込み
         if end_idx < len(filtered_channels):
             remaining = len(filtered_channels) - end_idx
-            
+
             # ボタンを中央に配置
             cols = st.columns([1, 2, 1])
             with cols[1]:
@@ -248,68 +251,82 @@ else:
                     f"📖 さらに{min(items_per_page, remaining)}件読み込む",
                     type="primary",
                     use_container_width=True,
-                    key="load_more_auto"
+                    key="load_more_auto",
                 )
-                
+
                 if load_more_clicked:
                     st.session_state.items_to_show += items_per_page
                     st.rerun()
-            
+
             # 自動読み込みトリガー用の不可視要素
-            st.markdown('<div id="load-more-trigger" style="height: 0; visibility: hidden;"></div>', unsafe_allow_html=True)
-            
+            st.markdown(
+                '<div id="load-more-trigger" style="height: 1px;"></div>',
+                unsafe_allow_html=True,
+            )
+
             # 自動クリック用のJavaScript
             # スクロールして要素が表示されたら自動的にボタンをクリック
             components.html(
                 """
                 <script>
-                    // Streamlitアプリのメインドキュメントを取得
-                    function findMainDocument() {
-                        // Streamlitはiframeを使用している可能性があるため、複数の方法を試す
-                        try {
-                            // 現在のドキュメント内でボタンを探す
-                            return document;
-                        } catch (e) {
-                            return null;
-                        }
-                    }
+                    let autoLoadTriggered = false;
                     
                     function autoClickLoadMore() {
-                        const mainDoc = findMainDocument();
-                        if (!mainDoc) return;
+                        if (autoLoadTriggered) return;
                         
-                        const trigger = mainDoc.getElementById('load-more-trigger');
-                        if (!trigger) return;
-                        
-                        const rect = trigger.getBoundingClientRect();
-                        const isVisible = rect.top < window.innerHeight && rect.bottom >= 0;
-                        
-                        if (isVisible) {
-                            // "さらに読み込む"ボタンを探してクリック
-                            const buttons = mainDoc.querySelectorAll('button');
-                            for (let btn of buttons) {
-                                if (btn.textContent.includes('さらに') && btn.textContent.includes('件読み込む')) {
-                                    // スクロール位置を記憶してからクリック
-                                    btn.click();
-                                    break;
+                        try {
+                            // 親ウィンドウのドキュメントにアクセス
+                            const parentDoc = window.parent.document;
+                            const trigger = parentDoc.getElementById('load-more-trigger');
+                            
+                            if (!trigger) {
+                                return;
+                            }
+                            
+                            // トリガー要素が画面内に表示されているかチェック
+                            const rect = trigger.getBoundingClientRect();
+                            const windowHeight = window.parent.innerHeight;
+                            const isVisible = rect.top >= 0 && rect.top < windowHeight;
+                            
+                            if (isVisible) {
+                                // "さらに読み込む"ボタンを探してクリック
+                                const buttons = parentDoc.querySelectorAll('button[kind="primary"]');
+                                for (let btn of buttons) {
+                                    const text = btn.textContent || '';
+                                    if (text.includes('さらに') && text.includes('件読み込む')) {
+                                        autoLoadTriggered = true;
+                                        btn.click();
+                                        break;
+                                    }
                                 }
                             }
+                        } catch (e) {
+                            console.error('Auto-load error:', e);
                         }
                     }
                     
-                    // スクロールイベントリスナーを追加
-                    window.addEventListener('scroll', autoClickLoadMore, { passive: true });
+                    // 親ウィンドウのスクロールイベントを監視
+                    try {
+                        window.parent.addEventListener('scroll', autoClickLoadMore, { passive: true });
+                    } catch (e) {
+                        console.error('Failed to add scroll listener:', e);
+                    }
+                    
+                    // 定期的にチェック（フォールバック）
+                    setInterval(autoClickLoadMore, 500);
                     
                     // ページ読み込み後に初回チェック
-                    setTimeout(autoClickLoadMore, 1000);
+                    setTimeout(autoClickLoadMore, 800);
                 </script>
                 """,
                 height=0,
             )
-            
+
             st.caption(f"📄 残り{remaining}件 - スクロールすると自動的に読み込まれます")
         else:
-            st.success(f"✅ すべてのチャンネル ({len(filtered_channels)}件) を表示しました")
+            st.success(
+                f"✅ すべてのチャンネル ({len(filtered_channels)}件) を表示しました"
+            )
 
 # エクスポート機能
 st.markdown("---")

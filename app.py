@@ -35,6 +35,7 @@ st.subheader("📊 データベース統計")
 from core.db_manager import SongVectorDB
 from core.channel_db import ChannelDB
 from core.song_queue_db import SongQueueDB
+import pandas as pd
 
 # データを取得
 try:
@@ -147,11 +148,17 @@ with st.expander("🎼 音声特徴量の統計情報"):
     
     if total_songs > 0:
         try:
+            # DBを初期化（上のtry-exceptで失敗していた場合のため）
+            db_features = SongVectorDB(
+                collection_name="songs_full", distance_fn="cosine", use_remote=True
+            )
+            
             # サンプリングして特徴量を取得
             sample_size = min(100, total_songs)
-            songs_data = db.list_all(limit=sample_size)
+            songs_data = db_features.list_all(limit=sample_size)
             
-            if songs_data and songs_data.get("metadatas"):
+            # データ構造を検証
+            if songs_data and isinstance(songs_data, dict) and songs_data.get("metadatas"):
                 st.info(f"📊 {sample_size}曲のサンプルから統計を計算しています")
                 
                 # メタデータから統計を計算
@@ -160,12 +167,12 @@ with st.expander("🎼 音声特徴量の統計情報"):
                 # source_dirの分布を計算
                 source_dirs = {}
                 for meta in metadata_list:
-                    source_dir = meta.get("source_dir", "unknown")
-                    source_dirs[source_dir] = source_dirs.get(source_dir, 0) + 1
+                    if isinstance(meta, dict):
+                        source_dir = meta.get("source_dir", "unknown")
+                        source_dirs[source_dir] = source_dirs.get(source_dir, 0) + 1
                 
                 if source_dirs:
                     st.markdown("### 📁 音源ディレクトリ分布")
-                    import pandas as pd
                     source_df = pd.DataFrame([
                         {"ディレクトリ": k, "曲数": v, "割合": f"{(v/sample_size*100):.1f}%"}
                         for k, v in sorted(source_dirs.items(), key=lambda x: x[1], reverse=True)

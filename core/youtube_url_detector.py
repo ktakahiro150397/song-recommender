@@ -80,15 +80,15 @@ class YouTubeURLDetector:
             if parsed.netloc and parsed.netloc not in valid_domains:
                 return "unknown", "YouTubeのURLを入力してください"
 
+            # プレイリスト判定（チャンネルと動画判定より先に行う）
+            for pattern in cls.PLAYLIST_PATTERNS:
+                if re.search(pattern, url):
+                    return "playlist", ""
+
             # チャンネル判定
             for pattern in cls.CHANNEL_PATTERNS:
                 if re.search(pattern, url):
                     return "channel", ""
-
-            # プレイリスト判定（動画判定より先に行う）
-            for pattern in cls.PLAYLIST_PATTERNS:
-                if re.search(pattern, url):
-                    return "playlist", ""
 
             # 動画判定
             for pattern in cls.VIDEO_PATTERNS:

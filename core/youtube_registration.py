@@ -52,8 +52,6 @@ class YouTubeRegistration:
             
             return True, f"プレイリストから{len(video_ids)}件の動画を抽出しました", video_ids
             
-        except NotImplementedError:
-            raise
         except Exception as e:
             return False, f"プレイリスト取得エラー: {str(e)}", []
 
@@ -100,10 +98,11 @@ class YouTubeRegistration:
                 
                 for video_id in video_ids:
                     video_url = f"https://www.youtube.com/watch?v={video_id}"
-                    success, msg, _ = self.song_db.add_song(video_url)
+                    success, msg, returned_video_id = self.song_db.add_song(video_url)
                     if success:
                         added_count += 1
-                    elif "既に登録済み" in msg:
+                    elif returned_video_id and not success:
+                        # If video_id is returned but not successful, it's likely a duplicate
                         skipped_count += 1
                     else:
                         failed_count += 1

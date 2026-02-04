@@ -238,6 +238,10 @@ class SongVectorDB:
     def get_random_sample(self, sample_percentage: float = 0.05) -> dict:
         """
         データベースからランダムにサンプリングする
+        
+        Note: This method loads all song IDs and embeddings into memory to perform
+        random sampling. For very large databases (>100k songs), this may be memory-intensive.
+        The sample size is capped at 1000 songs to limit memory usage.
 
         Args:
             sample_percentage: サンプリング率（デフォルト: 0.05 = 5%）
@@ -251,8 +255,9 @@ class SongVectorDB:
         if total_count == 0:
             return {"ids": [], "embeddings": [], "metadatas": []}
 
-        # サンプルサイズを計算（最小10曲、最大1000曲）
-        sample_size = max(10, min(1000, int(total_count * sample_percentage)))
+        # サンプルサイズを計算（最小10曲、最大1000曲、total_countを超えない）
+        target_sample = int(total_count * sample_percentage)
+        sample_size = max(min(10, total_count), min(target_sample, 1000, total_count))
 
         # 全曲を取得（limit=total_count）
         all_songs = self.collection.get(limit=total_count, include=["embeddings", "metadatas"])

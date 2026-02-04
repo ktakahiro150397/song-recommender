@@ -160,6 +160,7 @@ with st.expander("🎼 音声特徴量の統計情報", expanded=False):
                 songs_data
                 and isinstance(songs_data, dict)
                 and songs_data.get("embeddings")
+                and len(songs_data.get("embeddings", [])) > 0
                 and songs_data.get("metadatas")
             ):
                 sample_size = len(songs_data["ids"])

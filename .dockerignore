@@ -51,10 +51,8 @@ debug_*.py
 data/
 upload/
 
-# Docker関連
+# Docker関連（docker-compose.ymlはビルドに不要）
 docker-compose.yml
-Dockerfile
-.dockerignore
 
 # その他の不要なスクリプト
 migrate_*.py

@@ -39,7 +39,7 @@ ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1
 ```
 - `PYTHONDONTWRITEBYTECODE=1`: `.pyc` ファイルの生成を防止
-- `PYTHONUNBUFFERED=1`: Python出力のバッファリングを無効化（ログ出力の改善）
+- `PYTHONUNBUFFERED=1`: Python出力のバッファリングを無効化 (ログ出力の改善)
 
 ### 5. レイヤーキャッシュの最適化
 - 依存関係ファイル（`pyproject.toml`, `uv.lock`）を先にコピー

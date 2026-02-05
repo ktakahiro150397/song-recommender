@@ -99,6 +99,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - WUD_REGISTRY_GHCR_SONG-RECOMMENDER-USERNAME=ktakahiro150397
+      - WUD_TRIGGER_DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/1351069308519976990/BwjWjiHmFk5XIBL5MUYFMfS4_pdXL3CavNOOJm3pxy0cvRJjzQUAE8A45cACwh7DlBNc
     ports:
       - 3000:3000
 networks:

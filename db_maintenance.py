@@ -114,7 +114,7 @@ def main():
     limit = st.sidebar.number_input(
         "表示件数",
         min_value=10,
-        max_value=10000,
+        max_value=max(10000, total_count),  # DBの総件数に応じて上限を調整
         value=total_count,  # 全件表示をデフォルトに
         step=100,
     )

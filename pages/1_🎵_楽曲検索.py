@@ -96,30 +96,25 @@ def find_song_by_keyword_with_metadata(
     Args:
         db: データベースインスタンス
         keyword: 検索キーワード（空文字列の場合は全件取得）
-        limit: 最大取得件数
+        limit: 最大表示件数
 
     Returns:
         (song_id, metadata)のタプルのリスト
     """
-    all_songs = db.list_all(limit=10000)
-    matches = []
-
-    keyword_lower = keyword.lower() if keyword else ""
-    for idx, song_id in enumerate(all_songs["ids"]):
-        metadata = all_songs["metadatas"][idx] if all_songs["metadatas"] else {}
-        source_dir = metadata.get("source_dir", "").lower()
-        song_title = metadata.get("song_title", "").lower()
-
-        # キーワードが空の場合は全件マッチ、それ以外はID、source_dir、song_titleで検索
-        if (
-            not keyword
-            or keyword_lower in song_id.lower()
-            or keyword_lower in source_dir
-            or keyword_lower in song_title
-        ):
-            matches.append((song_id, metadata))
-            if len(matches) >= limit:
-                break
+    if keyword:
+        # キーワード検索時はDB側で limit を適用
+        result = db.search_by_keyword(keyword, limit=limit)
+        matches = [
+            (song_id, result["metadatas"][idx])
+            for idx, song_id in enumerate(result["ids"])
+        ]
+    else:
+        # キーワードなし（全件表示）時は DB から limit 件取得
+        all_songs = db.list_all(limit=limit)
+        matches = [
+            (song_id, all_songs["metadatas"][idx])
+            for idx, song_id in enumerate(all_songs["ids"])
+        ]
 
     return matches
 
@@ -329,9 +324,7 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
 
         # セッション状態を更新
         st.session_state.selected_song_id = selected_song_id
-        st.session_state.selected_songs = (
-            [selected_song_id] if selected_song_id else []
-        )
+        st.session_state.selected_songs = [selected_song_id] if selected_song_id else []
 
         # 選択された曲を目立つように表示
         if selected_song_id:
@@ -387,10 +380,11 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
                     )
                     if song_data and song_data.get("embedding") is not None:
                         # 検索除外フラグがTrueの曲を除外
+                        # メタデータに excluded_from_search がない場合は False として扱う
                         similar = db_instance.search_similar(
                             query_embedding=song_data["embedding"],
                             n_results=n_results + 10,  # 除外分を考慮して多めに取得
-                            where={"excluded_from_search": {"$ne": True}},
+                            where={"excluded_from_search": False},
                         )
                         # 自分自身を除外
                         filtered = []

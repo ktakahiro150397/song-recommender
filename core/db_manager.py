@@ -245,6 +245,54 @@ class SongVectorDB:
         """
         return self.collection.get(limit=limit, where=where)
 
+    def search_by_keyword(
+        self, keyword: str, limit: int = 10000, where: dict | None = None
+    ) -> dict:
+        """
+        メタデータの複数フィールドでテキスト部分一致検索を行う
+        （ただしChromaDBはテキスト部分一致の where フィルタをサポートしていないため、
+        　全件取得してからPython側で絞る）
+
+        Args:
+            keyword: 検索キーワード
+            limit: 最大表示件数
+            where: メタデータフィルタ（オプション）
+
+        Returns:
+            マッチした楽曲一覧
+        """
+        # DB側では where フィルタのみ適用（テキスト部分一致は非対応）
+        # 実際には全件取得が必要なため、十分大きな limit を指定
+        fetch_limit = min(100000, max(10000, limit * 10))  # 表示件数の10倍か100000まで
+        all_songs = self.list_all(limit=fetch_limit, where=where)
+
+        if not all_songs.get("ids"):
+            return {"ids": [], "metadatas": []}
+
+        matches = {"ids": [], "metadatas": []}
+        keyword_lower = keyword.lower()
+
+        for idx, song_id in enumerate(all_songs["ids"]):
+            metadata = (
+                all_songs["metadatas"][idx] if all_songs["metadatas"] else {}
+            )
+            source_dir = metadata.get("source_dir", "").lower()
+            song_title = metadata.get("song_title", "").lower()
+
+            # キーワードで部分一致検索
+            if (
+                keyword_lower in song_id.lower()
+                or keyword_lower in source_dir
+                or keyword_lower in song_title
+            ):
+                matches["ids"].append(song_id)
+                matches["metadatas"].append(metadata)
+
+                if len(matches["ids"]) >= limit:
+                    break
+
+        return matches
+
     def update_metadata(self, song_id: str, metadata: dict) -> None:
         """
         楽曲のメタデータを更新する

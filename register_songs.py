@@ -485,6 +485,7 @@ def add_song(
         "file_extension": ext.lower(),  # .mp3 or .wav
         "file_size_mb": get_file_size_mb(file_path),
         "registered_at": datetime.now().isoformat(),
+        "excluded_from_search": False,  # デフォルトは検索対象
     }
 
     db.add_song(song_id=filename, embedding=embedding, metadata=metadata)
@@ -540,6 +541,7 @@ def prepare_song_data(
         "file_extension": ext.lower(),
         "file_size_mb": get_file_size_mb(file_path),
         "registered_at": datetime.now().isoformat(),
+        "excluded_from_search": False,  # デフォルトは検索対象
     }
 
     return (filename, embedding, metadata)

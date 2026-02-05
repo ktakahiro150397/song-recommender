@@ -88,7 +88,7 @@ def extract_video_id_from_filename(filename: str) -> str | None:
     """
     ファイル名からYouTube動画IDを抽出する
     例: "フェスタ・イルミネーション [0Oj57StVGKk].wav" → "0Oj57StVGKk"
-    
+
     Note: YouTubeの動画IDは11文字の英数字とハイフン、アンダースコアで構成される
     """
     match = re.search(r"\[([a-zA-Z0-9_-]{11})\]", filename)
@@ -192,11 +192,11 @@ def chain_search_to_list(
                 continue
 
             vector = current_song["embedding"]
-            # 検索除外フラグが True の曲を除外
+            # 検索除外フラグが False (未設定を含む) の曲のみ検索
             search_result = db.search_similar(
                 query_embedding=vector,
                 n_results=len(visited) + 10,
-                where={"excluded_from_search": {"$ne": True}},
+                where={"excluded_from_search": False},
             )
 
             for song_id, distance, metadata in zip(
@@ -274,11 +274,11 @@ def run_playlist_creation(
     for song_id, distance, metadata in chain_results:
         # まずメタデータからvideo_idを取得
         video_id = metadata.get("youtube_id") if metadata else None
-        
+
         # メタデータにない場合はファイル名から抽出
         if not video_id:
             video_id = extract_video_id_from_filename(song_id)
-        
+
         if video_id:
             song_data.append((video_id, True))  # True = video_id
             print(f"   {song_id}")

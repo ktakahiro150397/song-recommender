@@ -475,9 +475,9 @@ def add_song(
     metadata = {
         "filename": filename,
         "song_title": song_title,  # 抽出した曲名（または上書き）
-        "artist_name": artist_name,  # アーティスト名（キューから取得）
+        "artist_name": artist_name if artist_name is not None else "",  # アーティスト名（キューから取得）
         "source_dir": normalized_dir,  # data/xxx 形式
-        "youtube_id": youtube_id,  # YouTube動画ID（なければNone）
+        "youtube_id": youtube_id if youtube_id is not None else "",  # YouTube動画ID（なければNone）
         "file_extension": ext.lower(),  # .mp3 or .wav
         "file_size_mb": get_file_size_mb(file_path),
         "registered_at": datetime.now().isoformat(),
@@ -530,9 +530,9 @@ def prepare_song_data(
     metadata = {
         "filename": filename,
         "song_title": song_title,
-        "artist_name": artist_name,
+        "artist_name": artist_name if artist_name is not None else "",
         "source_dir": normalized_dir,
-        "youtube_id": youtube_id,
+        "youtube_id": youtube_id if youtube_id is not None else "",
         "file_extension": ext.lower(),
         "file_size_mb": get_file_size_mb(file_path),
         "registered_at": datetime.now().isoformat(),

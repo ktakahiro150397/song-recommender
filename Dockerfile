@@ -5,10 +5,13 @@ FROM python:3.12-slim
 WORKDIR /app
 
 # システム依存パッケージをインストール（librosaに必要）
+# apt-get clean と不要なファイル削除を追加
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     libsndfile1 \
-    && rm -rf /var/lib/apt/lists/*
+    curl \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 # uv をインストール
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
@@ -17,7 +20,9 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 COPY pyproject.toml uv.lock ./
 
 # 依存関係をインストール（キャッシュ効率のため先にインストール）
-RUN uv sync --frozen --no-dev
+# インストール後にuvキャッシュをクリーンアップして容量削減
+RUN uv sync --frozen --no-dev && \
+    rm -rf /root/.cache/uv
 
 # アプリケーションコードをコピー
 COPY app.py home_page.py config.py create_playlist_from_chain.py ./

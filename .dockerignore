@@ -2,6 +2,7 @@
 .git
 .gitignore
 .gitattributes
+.github/
 
 # Python
 __pycache__/
@@ -10,6 +11,10 @@ __pycache__/
 .venv/
 *.egg-info/
 .eggs/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
 # IDE
 .vscode/
@@ -26,12 +31,34 @@ output_scripts/
 
 # 機密ファイル
 oauth.json
+browser.json
 secrets.json
 .env
+.env.example
 
 # ドキュメント
 README.md
 *.md
+MIGRATION_GUIDE.md
+YouTube登録ページ統合提案.md
 
 # テストファイル
 test_*.py
+debug_*.py
+
+# データとアップロード（ビルドに不要、実行時にマウントされる）
+data/
+upload/
+
+# Docker関連
+docker-compose.yml
+Dockerfile
+.dockerignore
+
+# その他の不要なスクリプト
+migrate_*.py
+db_maintenance.py
+register_songs.py
+create_dl_script_from_yt.py
+test_url_fetch.py
+test_ytmusic.py

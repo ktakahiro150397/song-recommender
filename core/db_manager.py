@@ -249,6 +249,9 @@ class SongVectorDB:
         注意: このメソッドはメタデータを完全に置き換えます（マージではありません）
         既存のメタデータを保持したい場合は、先にget_song()で取得してから
         更新したいフィールドのみ変更してください。
+        
+        曲が存在しない場合でもエラーは発生せず、静かに失敗します。
+        確実に更新したい場合は、事前にget_song()で存在確認してください。
 
         Args:
             song_id: 楽曲ID
@@ -257,9 +260,10 @@ class SongVectorDB:
         Example:
             # 既存のメタデータを保持しながら更新
             song_data = db.get_song(song_id, include_embedding=False)
-            metadata = song_data["metadata"]
-            metadata["excluded_from_search"] = True
-            db.update_metadata(song_id, metadata)
+            if song_data and song_data.get("metadata"):
+                metadata = song_data["metadata"]
+                metadata["excluded_from_search"] = True
+                db.update_metadata(song_id, metadata)
         """
         self.collection.update(ids=[song_id], metadatas=[metadata])
 

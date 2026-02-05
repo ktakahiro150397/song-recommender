@@ -181,7 +181,7 @@ def chain_search_to_list(
                 continue
 
             vector = current_song["embedding"]
-            # 検索除外フラグがTrueの曲を除外
+            # 検索除外フラグが True の曲を除外
             search_result = db.search_similar(
                 query_embedding=vector,
                 n_results=len(visited) + 10,

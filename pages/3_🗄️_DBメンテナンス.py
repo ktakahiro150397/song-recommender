@@ -85,52 +85,6 @@ def toggle_excluded_flag(song_ids: list[str], exclude: bool) -> tuple[int, list[
     return success_count, errors
 
 
-def find_potential_duplicates(
-    db: SongVectorDB, limit: int = 10000
-) -> list[tuple[str, list[str]]]:
-    """
-    曲名の類似性から重複の可能性がある曲をグループ化
-
-    Returns:
-        [(基準曲ID, [類似曲IDリスト]), ...] のリスト
-    """
-    import difflib
-
-    all_songs = db.list_all(limit=limit)
-    if not all_songs["ids"]:
-        return []
-
-    song_ids = all_songs["ids"]
-    duplicates = []
-    processed = set()
-
-    for i, song_id in enumerate(song_ids):
-        if song_id in processed:
-            continue
-
-        # このIDと類似している他のIDを探す
-        similar_songs = []
-        base_name = song_id.lower()
-
-        for j, other_id in enumerate(song_ids):
-            if i == j or other_id in processed:
-                continue
-
-            other_name = other_id.lower()
-            # 類似度を計算（0.7以上で類似とみなす）
-            similarity = difflib.SequenceMatcher(None, base_name, other_name).ratio()
-
-            if similarity > 0.7:
-                similar_songs.append(other_id)
-                processed.add(other_id)
-
-        if similar_songs:
-            duplicates.append((song_id, similar_songs))
-            processed.add(song_id)
-
-    return duplicates
-
-
 # ========== メイン画面 ==========
 
 st.set_page_config(
@@ -516,32 +470,6 @@ if selected_songs:
             st.rerun()
 else:
     st.caption("💡 左の「選択」列をチェックすると一括変更オプションが表示されます")
-
-# 重複検出セクション
-st.divider()
-st.subheader("🔍 重複曲検出")
-
-st.info("💡 曲名の類似性から重複の可能性がある曲をグループ表示します")
-
-if st.button("🔍 重複検出を実行", type="secondary"):
-    with st.spinner("重複を検出中..."):
-        duplicates = find_potential_duplicates(db, limit=total_count)
-
-    if duplicates:
-        st.success(f"✅ {len(duplicates)} グループの重複候補を検出しました")
-
-        for idx, (base_song, similar_songs) in enumerate(duplicates, 1):
-            with st.expander(f"グループ {idx}: {base_song} + {len(similar_songs)} 件"):
-                st.write(f"**基準曲:** {base_song}")
-                st.write(f"**類似曲 ({len(similar_songs)} 件):**")
-                for similar in similar_songs:
-                    st.text(f"  • {similar}")
-
-                st.caption(
-                    "💡 重複と思われる曲を上の表で選択して、削除または検索除外してください"
-                )
-    else:
-        st.info("重複候補は見つかりませんでした")
 
 # リフレッシュボタン
 if st.sidebar.button("🔄 再読み込み"):

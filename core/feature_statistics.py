@@ -40,18 +40,25 @@ class FeatureStatistics:
             return {}
 
         # numpy配列に変換
-        embeddings_array = np.array(embeddings)
+        embeddings_array = np.array(embeddings, dtype=np.float32)
+        
+        # データが1次元の場合のチェック
+        if embeddings_array.ndim == 1:
+            return {}
+        
+        if len(embeddings_array.shape) < 2:
+            return {}
 
         # 全体の統計
         statistics = {
             "sample_size": len(embeddings),
-            "total_dimensions": embeddings_array.shape[1],
+            "total_dimensions": int(embeddings_array.shape[1]),
             "features": {},
         }
 
         # 各特徴量の統計を計算
         for feature_name, (start, end) in FeatureStatistics.FEATURE_MAPPING.items():
-            if end <= embeddings_array.shape[1]:
+            if int(end) <= int(embeddings_array.shape[1]):
                 feature_data = embeddings_array[:, start:end]
 
                 # 次元ごとの統計を計算

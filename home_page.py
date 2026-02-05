@@ -136,7 +136,7 @@ with st.expander("🔍 データベース詳細情報", expanded=True):
         st.info("キューにデータがありません")
 
 # 音声特徴量の統計情報（ランダムサンプリング）
-with st.expander("🎼 音声特徴量の統計情報", expanded=False):
+with st.expander("🎼 音声特徴量の統計情報", expanded=True):
     st.markdown(
         """
     データベースに登録されている楽曲の音声特徴量を分析しています。
@@ -156,12 +156,15 @@ with st.expander("🎼 音声特徴量の統計情報", expanded=False):
                 songs_data = db_features.get_random_sample(sample_percentage=0.05)
 
             # データ構造を検証
+            embeddings_data = songs_data.get("embeddings") if songs_data and isinstance(songs_data, dict) else None
+            metadatas_data = songs_data.get("metadatas") if songs_data and isinstance(songs_data, dict) else None
+            
             if (
                 songs_data
                 and isinstance(songs_data, dict)
-                and songs_data.get("embeddings")
-                and len(songs_data.get("embeddings", [])) > 0
-                and songs_data.get("metadatas")
+                and embeddings_data is not None
+                and (hasattr(embeddings_data, '__len__') and len(embeddings_data) > 0)
+                and metadatas_data is not None
             ):
                 sample_size = len(songs_data["ids"])
                 st.success(
@@ -169,37 +172,15 @@ with st.expander("🎼 音声特徴量の統計情報", expanded=False):
                     f"（全{total_songs}曲の{(sample_size/total_songs*100):.1f}%）"
                 )
 
-                # メタデータから統計を計算
-                metadata_list = songs_data["metadatas"]
-
-                # source_dirの分布を計算
-                source_dirs = {}
-                for meta in metadata_list:
-                    if isinstance(meta, dict):
-                        source_dir = meta.get("source_dir", "unknown")
-                        source_dirs[source_dir] = source_dirs.get(source_dir, 0) + 1
-
-                if source_dirs:
-                    st.markdown("### 📁 音源ディレクトリ分布")
-                    source_df = pd.DataFrame(
-                        [
-                            {
-                                "ディレクトリ": k,
-                                "曲数": v,
-                                "割合": f"{(v/sample_size*100):.1f}%",
-                            }
-                            for k, v in sorted(
-                                source_dirs.items(), key=lambda x: x[1], reverse=True
-                            )
-                        ]
-                    )
-                    st.dataframe(source_df, hide_index=True, use_container_width=True)
-
                 # 特徴量統計を計算
                 embeddings = songs_data["embeddings"]
+                # NumPy配列の場合はリストに変換
+                if hasattr(embeddings, 'tolist'):
+                    embeddings = embeddings.tolist()
+                
                 stats = FeatureStatistics.calculate_statistics(embeddings)
 
-                if stats and stats.get("features"):
+                if stats and isinstance(stats, dict) and stats.get("features"):
                     st.markdown("### 📈 特徴量の統計分析")
 
                     # カテゴリごとにグラフを表示
@@ -270,7 +251,7 @@ with st.expander("🎼 音声特徴量の統計情報", expanded=False):
                             st.plotly_chart(fig, use_container_width=True)
 
                             # 詳細データテーブル
-                            with st.expander(f"{category}の詳細統計"):
+                            with st.expander(f"{category}の詳細統計", expanded=True):
                                 st.dataframe(
                                     df.style.format(
                                         {

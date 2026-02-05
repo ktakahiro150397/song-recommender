@@ -384,7 +384,7 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
                         similar = db_instance.search_similar(
                             query_embedding=song_data["embedding"],
                             n_results=n_results + 10,  # 除外分を考慮して多めに取得
-                            where={"excluded_from_search": False},
+                            where={"excluded_from_search": {"$ne": True}},
                         )
                         # 自分自身を除外
                         filtered = []

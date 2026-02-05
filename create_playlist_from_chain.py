@@ -196,7 +196,7 @@ def chain_search_to_list(
             search_result = db.search_similar(
                 query_embedding=vector,
                 n_results=len(visited) + 10,
-                where={"excluded_from_search": False},
+                where={"excluded_from_search": {"$ne": True}},
             )
 
             for song_id, distance, metadata in zip(

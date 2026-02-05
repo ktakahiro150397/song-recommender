@@ -327,6 +327,22 @@ def process_youtube_queue(parallel_mode: str = "none") -> None:
 
             print(f"[{idx}/{len(pending_songs)}] {video_id} - {url}")
 
+            # ✅ YouTubeIDがDBに既に存在しているかをチェック
+            youtube_id_exists = False
+            for db, _, _ in dbs_and_extractors:
+                existing = db.get_by_youtube_id(video_id)
+                if existing:
+                    youtube_id_exists = True
+                    print(f"   ⏭️  YouTubeID ({video_id}) は既に登録済みです")
+                    print(f"      (既存ID: {existing['id']})")
+                    break
+
+            if youtube_id_exists:
+                queue_db.mark_as_processed(video_id)
+                success_count += 1
+                print()
+                continue
+
             # ダウンロード
             download_success, download_msg, file_path = download_youtube_audio(
                 video_id, temp_dir

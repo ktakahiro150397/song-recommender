@@ -20,7 +20,7 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev
 
 # アプリケーションコードをコピー
-COPY app.py home_page.py config.py create_playlist_from_chain.py browser.json ./
+COPY app.py home_page.py config.py create_playlist_from_chain.py ./
 COPY core/ ./core/
 COPY pages/ ./pages/
 COPY .streamlit/ ./.streamlit/

@@ -47,9 +47,7 @@ services:
 
   # Streamlit アプリケーション
   song-recommender:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ghcr.io/ktakahiro150397/song-recommender:latest
     container_name: song-recommender
     restart: unless-stopped
     depends_on:
@@ -93,6 +91,16 @@ services:
     command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
     networks:
       - app-network
+
+  whatsupdocker:
+    image: getwud/wud
+    container_name: wud
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - WUD_REGISTRY_GHCR_SONG-RECOMMENDER-USERNAME=ktakahiro150397
+    ports:
+      - 3000:3000
 networks:
   app-network:
     driver: bridge

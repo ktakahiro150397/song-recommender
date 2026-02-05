@@ -14,6 +14,7 @@ from core.db_manager import SongVectorDB
 from create_playlist_from_chain import (
     chain_search_to_list,
     filename_to_query,
+    extract_video_id_from_filename,
     BROWSER_FILE,
 )
 from core.ytmusic_manager import YTMusicManager
@@ -595,20 +596,39 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
                             status_text = st.empty()
 
                             for idx, (song_id, _, metadata) in enumerate(chain_results):
-                                # ファイル名とmetadataから検索クエリを生成
-                                source_dir = (
-                                    metadata.get("source_dir", "") if metadata else ""
-                                )
-                                query = filename_to_query(song_id, source_dir)
-
-                                status_text.text(
-                                    f"検索中 ({idx + 1}/{len(chain_results)}): {query}"
+                                # まずメタデータからyoutube_idを取得
+                                video_id = (
+                                    metadata.get("youtube_id") if metadata else None
                                 )
 
-                                result = ytmusic.search_video_id(query)
-                                if result and result.get("videoId"):
-                                    video_ids.append(result["videoId"])
+                                # メタデータにない場合はファイル名から抽出
+                                if not video_id:
+                                    video_id = extract_video_id_from_filename(song_id)
+
+                                if video_id:
+                                    # ビデオIDが取得できた場合は直接使用
+                                    status_text.text(
+                                        f"追加中 ({idx + 1}/{len(chain_results)}): {song_id} → ID: {video_id}"
+                                    )
+                                    video_ids.append(video_id)
                                     success_count += 1
+                                else:
+                                    # ビデオIDがない場合は検索クエリで検索
+                                    source_dir = (
+                                        metadata.get("source_dir", "")
+                                        if metadata
+                                        else ""
+                                    )
+                                    query = filename_to_query(song_id, source_dir)
+
+                                    status_text.text(
+                                        f"検索中 ({idx + 1}/{len(chain_results)}): {query}"
+                                    )
+
+                                    result = ytmusic.search_video_id(query)
+                                    if result and result.get("videoId"):
+                                        video_ids.append(result["videoId"])
+                                        success_count += 1
 
                                 progress_bar.progress((idx + 1) / len(chain_results))
 

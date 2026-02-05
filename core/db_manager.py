@@ -123,19 +123,25 @@ class SongVectorDB:
         result = self.collection.get(ids=song_ids, include=include)  # type: ignore
         return result
 
-    def search_similar(self, query_embedding: list[float], n_results: int = 5) -> dict:
+    def search_similar(
+        self,
+        query_embedding: list[float],
+        n_results: int = 5,
+        where: dict | None = None,
+    ) -> dict:
         """
         類似楽曲を検索する
 
         Args:
             query_embedding: 検索クエリのベクトル
             n_results: 取得件数
+            where: メタデータフィルタ（例: {"excluded_from_search": {"$ne": True}}）
 
         Returns:
             検索結果（ids, distances, metadatas）
         """
         results = self.collection.query(
-            query_embeddings=[query_embedding], n_results=n_results
+            query_embeddings=[query_embedding], n_results=n_results, where=where
         )
         return results
 
@@ -226,17 +232,43 @@ class SongVectorDB:
             print(f"Warning: Failed to search by youtube_id '{youtube_id}': {e}")
             return None
 
-    def list_all(self, limit: int = 100) -> dict:
+    def list_all(self, limit: int = 100, where: dict | None = None) -> dict:
         """
         登録されている楽曲一覧を取得する
 
         Args:
             limit: 取得件数上限
+            where: メタデータフィルタ（例: {"excluded_from_search": {"$ne": True}}）
 
         Returns:
             楽曲一覧
         """
-        return self.collection.get(limit=limit)
+        return self.collection.get(limit=limit, where=where)
+
+    def update_metadata(self, song_id: str, metadata: dict) -> None:
+        """
+        楽曲のメタデータを更新する
+        
+        注意: このメソッドはメタデータを完全に置き換えます（マージではありません）
+        既存のメタデータを保持したい場合は、先にget_song()で取得してから
+        更新したいフィールドのみ変更してください。
+        
+        曲が存在しない場合でもエラーは発生せず、静かに失敗します。
+        確実に更新したい場合は、事前にget_song()で存在確認してください。
+
+        Args:
+            song_id: 楽曲ID
+            metadata: 更新するメタデータ（既存のメタデータを完全に置き換えます）
+            
+        Example:
+            # 既存のメタデータを保持しながら更新
+            song_data = db.get_song(song_id, include_embedding=False)
+            if song_data and song_data.get("metadata"):
+                metadata = song_data["metadata"]
+                metadata["excluded_from_search"] = True
+                db.update_metadata(song_id, metadata)
+        """
+        self.collection.update(ids=[song_id], metadatas=[metadata])
 
     def get_random_sample(self, sample_percentage: float = 0.05) -> dict:
         """

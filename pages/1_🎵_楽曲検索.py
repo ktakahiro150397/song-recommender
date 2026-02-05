@@ -386,9 +386,11 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
                         selected_song, include_embedding=True
                     )
                     if song_data and song_data.get("embedding") is not None:
+                        # 検索除外フラグがTrueの曲を除外
                         similar = db_instance.search_similar(
                             query_embedding=song_data["embedding"],
-                            n_results=n_results + 1,  # 自分自身も含まれるので+1
+                            n_results=n_results + 10,  # 除外分を考慮して多めに取得
+                            where={"excluded_from_search": {"$ne": True}},
                         )
                         # 自分自身を除外
                         filtered = []

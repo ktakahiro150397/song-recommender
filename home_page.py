@@ -156,14 +156,22 @@ with st.expander("🎼 音声特徴量の統計情報", expanded=True):
                 songs_data = db_features.get_random_sample(sample_percentage=0.05)
 
             # データ構造を検証
-            embeddings_data = songs_data.get("embeddings") if songs_data and isinstance(songs_data, dict) else None
-            metadatas_data = songs_data.get("metadatas") if songs_data and isinstance(songs_data, dict) else None
-            
+            embeddings_data = (
+                songs_data.get("embeddings")
+                if songs_data and isinstance(songs_data, dict)
+                else None
+            )
+            metadatas_data = (
+                songs_data.get("metadatas")
+                if songs_data and isinstance(songs_data, dict)
+                else None
+            )
+
             if (
                 songs_data
                 and isinstance(songs_data, dict)
                 and embeddings_data is not None
-                and (hasattr(embeddings_data, '__len__') and len(embeddings_data) > 0)
+                and (hasattr(embeddings_data, "__len__") and len(embeddings_data) > 0)
                 and metadatas_data is not None
             ):
                 sample_size = len(songs_data["ids"])
@@ -175,9 +183,9 @@ with st.expander("🎼 音声特徴量の統計情報", expanded=True):
                 # 特徴量統計を計算
                 embeddings = songs_data["embeddings"]
                 # NumPy配列の場合はリストに変換
-                if hasattr(embeddings, 'tolist'):
+                if hasattr(embeddings, "tolist"):
                     embeddings = embeddings.tolist()
-                
+
                 stats = FeatureStatistics.calculate_statistics(embeddings)
 
                 if stats and isinstance(stats, dict) and stats.get("features"):

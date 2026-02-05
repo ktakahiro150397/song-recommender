@@ -41,11 +41,11 @@ class FeatureStatistics:
 
         # numpy配列に変換
         embeddings_array = np.array(embeddings, dtype=np.float32)
-        
+
         # データが1次元の場合のチェック
         if embeddings_array.ndim == 1:
             return {}
-        
+
         if len(embeddings_array.shape) < 2:
             return {}
 

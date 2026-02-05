@@ -128,7 +128,7 @@ def test_create_playlist(playlist_name: str):
         browser_file=BROWSER_FILE,
     )
 
-    # テスト用の曲リスト
+    # テスト用の曲リスト（検索クエリとして使用）
     test_songs = [
         "宇多田ヒカル First Love",
         "YOASOBI 夜に駆ける",
@@ -137,9 +137,12 @@ def test_create_playlist(playlist_name: str):
         "米津玄師 Lemon",
     ]
 
+    # song_data形式に変換 (query, is_video_id=False)
+    song_data = [(song, False) for song in test_songs]
+
     result = ytm.create_or_replace_playlist(
         playlist_name=playlist_name,
-        song_queries=test_songs,
+        song_data=song_data,
         description="Song Recommender テストプレイリスト",
         privacy="PRIVATE",
         verbose=True,

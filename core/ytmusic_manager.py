@@ -185,7 +185,7 @@ class YTMusicManager:
     def create_or_replace_playlist(
         self,
         playlist_name: str,
-        song_queries: list[str],
+        song_data: list[tuple[str, bool]],
         description: str = "",
         privacy: str = "PRIVATE",
         verbose: bool = True,
@@ -195,7 +195,9 @@ class YTMusicManager:
 
         Args:
             playlist_name: プレイリスト名
-            song_queries: 検索クエリのリスト（曲名やアーティスト名）
+            song_data: [(video_id_or_query, is_video_id), ...]のリスト
+                       is_video_id=Trueの場合、video_idを直接使用
+                       is_video_id=Falseの場合、検索クエリとして検索
             description: プレイリストの説明
             privacy: 公開設定
             verbose: 詳細ログを出力するか
@@ -220,29 +222,45 @@ class YTMusicManager:
             if verbose:
                 print(f"🗑️  Deleted existing playlist: {playlist_name}")
 
-        # 2. 曲名からvideoIdを取得
+        # 2. ビデオIDを取得（直接指定されたものと検索で取得したもの）
         video_ids = []
-        for i, query in enumerate(song_queries):
+        for i, (data, is_video_id) in enumerate(song_data):
             if verbose:
-                print(f"🔍 [{i + 1}/{len(song_queries)}] Searching: {query}")
+                print(f"🔍 [{i + 1}/{len(song_data)}] Processing: {data}")
 
-            song_info = self.search_video_id(query)
-            if song_info and song_info.get("videoId"):
-                video_ids.append(song_info["videoId"])
+            if is_video_id:
+                # ビデオIDが直接指定されている場合はそのまま使用
+                # Note: API呼び出しを避けるため、メタデータは取得しない（プレースホルダー値を使用）
+                video_ids.append(data)
                 result["found_songs"].append(
                     {
-                        "query": query,
-                        "videoId": song_info["videoId"],
-                        "title": song_info["title"],
-                        "artist": song_info["artist"],
+                        "query": f"Video ID: {data}",
+                        "videoId": data,
+                        "title": "Direct video ID",  # プレースホルダー
+                        "artist": "N/A",  # プレースホルダー
                     }
                 )
                 if verbose:
-                    print(f"   ✅ Found: {song_info['title']} - {song_info['artist']}")
+                    print(f"   ✅ Using video ID directly: {data}")
             else:
-                result["not_found"].append(query)
-                if verbose:
-                    print(f"   ❌ Not found")
+                # 検索クエリの場合は検索を実行
+                song_info = self.search_video_id(data)
+                if song_info and song_info.get("videoId"):
+                    video_ids.append(song_info["videoId"])
+                    result["found_songs"].append(
+                        {
+                            "query": data,
+                            "videoId": song_info["videoId"],
+                            "title": song_info["title"],
+                            "artist": song_info["artist"],
+                        }
+                    )
+                    if verbose:
+                        print(f"   ✅ Found: {song_info['title']} - {song_info['artist']}")
+                else:
+                    result["not_found"].append(data)
+                    if verbose:
+                        print(f"   ❌ Not found")
 
         # 3. 新規プレイリスト作成
         if video_ids:
@@ -256,7 +274,7 @@ class YTMusicManager:
 
             if verbose:
                 print(f"\n🎵 Created playlist: {playlist_name}")
-                print(f"   Songs: {len(video_ids)} / {len(song_queries)}")
+                print(f"   Songs: {len(video_ids)} / {len(song_data)}")
                 if playlist_id:
                     print(
                         f"   URL: https://music.youtube.com/playlist?list={playlist_id}"

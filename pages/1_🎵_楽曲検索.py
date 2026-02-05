@@ -8,6 +8,7 @@ import streamlit as st
 import pandas as pd
 from pathlib import Path
 import re
+import random
 
 from core.db_manager import SongVectorDB
 from create_playlist_from_chain import (
@@ -155,6 +156,31 @@ def get_recently_added_songs(
     return sorted_songs[:limit]
 
 
+def get_random_songs(db: SongVectorDB, limit: int = 50) -> list[tuple[str, dict]]:
+    """ランダムに楽曲を取得
+
+    Args:
+        db: データベースインスタンス
+        limit: 取得件数（デフォルト: 50）
+
+    Returns:
+        (song_id, metadata)のタプルのリスト（ランダム順）
+    """
+    # 全曲取得（limit=10000で十分な数を取得）
+    all_songs = db.list_all(limit=10000)
+
+    # メタデータと曲IDをペアにしてリスト化
+    song_list = []
+    for idx, song_id in enumerate(all_songs["ids"]):
+        metadata = all_songs["metadatas"][idx] if all_songs["metadatas"] else {}
+        song_list.append((song_id, metadata))
+
+    # ランダムにサンプリング
+    # 曲数がlimitより少ない場合は全曲を返す
+    sample_size = min(limit, len(song_list))
+    return random.sample(song_list, sample_size)
+
+
 # ========== メイン画面 ==========
 
 st.set_page_config(
@@ -230,16 +256,16 @@ with col3:
 # 初回表示時にデフォルトでおすすめ曲を表示
 if st.session_state.matches is None and st.session_state.last_keyword is None:
     with st.spinner("おすすめ曲を取得中..."):
-        st.session_state.matches = get_recently_added_songs(db, limit=max_results)
+        st.session_state.matches = get_random_songs(db, limit=max_results)
         st.session_state.last_keyword = "__recommend__"
 
 # 検索実行
 if search_button or recommend_button or "last_keyword" in st.session_state:
-    # おすすめボタンが押された場合は、最近追加された曲を表示
+    # おすすめボタンが押された場合は、ランダムに50曲を表示
     if recommend_button:
         st.session_state.last_keyword = "__recommend__"
         with st.spinner("おすすめ曲を取得中..."):
-            st.session_state.matches = get_recently_added_songs(db, limit=max_results)
+            st.session_state.matches = get_random_songs(db, limit=max_results)
     # 検索ボタンが押された、またはキーワードが変更された場合
     elif search_button or (
         "last_keyword" not in st.session_state
@@ -259,7 +285,7 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
 
     # 表示タイトルを変更
     if st.session_state.last_keyword == "__recommend__":
-        st.info("✨ 最近追加された楽曲を表示しています")
+        st.info("✨ ランダムに選ばれた楽曲を表示しています")
 
     if matches:
         st.success(f"✅ {len(matches)}件見つかりました")

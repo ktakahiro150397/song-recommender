@@ -84,6 +84,17 @@ def select_song_interactive(db: SongVectorDB, keyword: str) -> str | None:
         return None
 
 
+def extract_video_id_from_filename(filename: str) -> str | None:
+    """
+    ファイル名からYouTube動画IDを抽出する
+    例: "フェスタ・イルミネーション [0Oj57StVGKk].wav" → "0Oj57StVGKk"
+    
+    Note: YouTubeの動画IDは11文字の英数字とハイフン、アンダースコアで構成される
+    """
+    match = re.search(r"\[([a-zA-Z0-9_-]{11})\]", filename)
+    return match.group(1) if match else None
+
+
 def filename_to_query(filename: str, source_dir: str | None = None) -> str:
     """
     ファイル名から検索クエリを抽出
@@ -257,15 +268,28 @@ def run_playlist_creation(
         print("❌ 連鎖検索結果が空のため、終了します。")
         return
 
-    # 3. ファイル名から検索クエリを生成
-    print("\n🔍 検索クエリを生成中...")
-    song_queries = []
+    # 3. ファイル名から検索クエリとビデオIDを生成
+    print("\n🔍 検索クエリとビデオIDを生成中...")
+    song_data = []  # [(video_id_or_query, is_video_id), ...]
     for song_id, distance, metadata in chain_results:
-        source_dir = metadata.get("source_dir") if metadata else None
-        query = filename_to_query(song_id, source_dir=source_dir)
-        song_queries.append(query)
-        print(f"   {song_id}")
-        print(f"      → {query}")
+        # まずメタデータからvideo_idを取得
+        video_id = metadata.get("youtube_id") if metadata else None
+        
+        # メタデータにない場合はファイル名から抽出
+        if not video_id:
+            video_id = extract_video_id_from_filename(song_id)
+        
+        if video_id:
+            song_data.append((video_id, True))  # True = video_id
+            print(f"   {song_id}")
+            print(f"      → ビデオID: {video_id}")
+        else:
+            # Video IDがない場合はクエリ検索にフォールバック
+            source_dir = metadata.get("source_dir") if metadata else None
+            query = filename_to_query(song_id, source_dir=source_dir)
+            song_data.append((query, False))  # False = search query
+            print(f"   {song_id}")
+            print(f"      → 検索クエリ: {query}")
 
     # 4. YouTube Musicマネージャーを初期化
     print("\n🔗 YouTube Musicに接続中...")
@@ -280,7 +304,7 @@ def run_playlist_creation(
     print("\n🎵 プレイリストを作成中...")
     result = ytm.create_or_replace_playlist(
         playlist_name=playlist_name,
-        song_queries=song_queries,
+        song_data=song_data,
         description=description,
         privacy=PRIVACY,
         verbose=True,
@@ -292,7 +316,7 @@ def run_playlist_creation(
     print("=" * 60)
     print(f"   プレイリスト名: {playlist_name}")
     print(f"   Playlist ID: {result['playlist_id']}")
-    print(f"   登録成功: {len(result['found_songs'])} / {len(song_queries)} 曲")
+    print(f"   登録成功: {len(result['found_songs'])} / {len(song_data)} 曲")
     print(f"   見つからず: {len(result['not_found'])} 曲")
 
     if result["playlist_id"]:

@@ -40,6 +40,7 @@ secrets.json
 README.md
 *.md
 MIGRATION_GUIDE.md
+DOCKER_OPTIMIZATION.md
 YouTube登録ページ統合提案.md
 
 # テストファイル

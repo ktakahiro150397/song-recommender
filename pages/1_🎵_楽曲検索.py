@@ -131,8 +131,8 @@ def get_recently_added_songs(
     Returns:
         (song_id, metadata)のタプルのリスト（新しい順）
     """
-    # 全曲取得（limit=10000で十分な数を取得）
-    all_songs = db.list_all(limit=10000)
+    # 全曲取得（100k件まで対応）
+    all_songs = db.list_all(limit=100000)
 
     # メタデータと曲IDをペアにしてリスト化
     song_list = []
@@ -161,8 +161,8 @@ def get_random_songs(db: SongVectorDB, limit: int = 50) -> list[tuple[str, dict]
     Returns:
         (song_id, metadata)のタプルのリスト（ランダム順）
     """
-    # 全曲取得（limit=10000で十分な数を取得）
-    all_songs = db.list_all(limit=10000)
+    # 全曲取得（100k件まで対応）
+    all_songs = db.list_all(limit=100000)
 
     # メタデータと曲IDをペアにしてリスト化
     song_list = []
@@ -273,7 +273,7 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
         current_keyword = keyword if keyword else ""
         st.session_state.last_keyword = current_keyword
         st.session_state.matches = find_song_by_keyword_with_metadata(
-            db, current_keyword, limit=10000
+            db, current_keyword, limit=100000
         )
 
     matches = st.session_state.matches

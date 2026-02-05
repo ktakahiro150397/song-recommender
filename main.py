@@ -34,17 +34,9 @@ def find_song_by_keyword(db: SongVectorDB, keyword: str, limit: int = 10) -> lis
     Returns:
         マッチした曲IDのリスト
     """
-    all_songs = db.list_all(limit=10000)
-    matches = []
-
-    keyword_lower = keyword.lower()
-    for song_id in all_songs["ids"]:
-        if keyword_lower in song_id.lower():
-            matches.append(song_id)
-            if len(matches) >= limit:
-                break
-
-    return matches
+    # db.search_by_keywordを使用（100k件まで対応）
+    result = db.search_by_keyword(keyword, limit=limit)
+    return result["ids"]
 
 
 def select_song_interactive(db: SongVectorDB, keyword: str) -> str | None:

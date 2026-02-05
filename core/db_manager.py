@@ -11,6 +11,9 @@ from typing import Literal
 # 距離関数の型
 DistanceFunction = Literal["l2", "cosine", "ip"]
 
+# ランダムサンプリングの閾値（この値以上の曲数で効率的な方法を使用）
+LARGE_DB_THRESHOLD = 10000
+
 
 class SongVectorDB:
     """楽曲ベクトルを管理するクラス"""
@@ -234,6 +237,78 @@ class SongVectorDB:
             楽曲一覧
         """
         return self.collection.get(limit=limit)
+
+    def get_random_sample(self, sample_percentage: float = 0.05) -> dict:
+        """
+        データベースからランダムにサンプリングする
+        
+        メモリ効率的な実装：
+        - 小規模DB（<10k曲）: 全件読み込み後にランダムサンプリング
+        - 大規模DB（>=10k曲）: IDのみ読み込み→ランダム選択→該当曲のみ取得
+        
+        これにより100万曲規模のデータベースでもメモリを圧迫しません。
+
+        Args:
+            sample_percentage: サンプリング率（デフォルト: 0.05 = 5%）
+
+        Returns:
+            ランダムサンプリングされた楽曲一覧（ids, embeddings, metadatas）
+        """
+        import random
+
+        total_count = self.count()
+        if total_count == 0:
+            return {"ids": [], "embeddings": [], "metadatas": []}
+
+        # サンプルサイズを計算（最小10曲、最大1000曲、total_countを超えない）
+        target_sample = int(total_count * sample_percentage)
+        sample_size = max(min(10, total_count), min(target_sample, 1000, total_count))
+
+        # 大規模DBの場合はメモリ効率的な方法を使用
+        if total_count >= LARGE_DB_THRESHOLD:
+            # Step 1: IDのみを取得（メモリ効率的）
+            all_ids_result = self.collection.get(limit=total_count, include=[])
+            
+            if not all_ids_result["ids"]:
+                return {"ids": [], "embeddings": [], "metadatas": []}
+            
+            all_ids = all_ids_result["ids"]
+            
+            # Step 2: ランダムにIDを選択（実際の取得件数に合わせて調整）
+            actual_sample_size = min(sample_size, len(all_ids))
+            sampled_ids = random.sample(all_ids, actual_sample_size)
+            
+            # Step 3: 選択されたIDの楽曲のみ取得
+            sampled_songs = self.collection.get(
+                ids=sampled_ids,
+                include=["embeddings", "metadatas"]
+            )
+            
+            return {
+                "ids": sampled_songs["ids"],
+                "embeddings": sampled_songs.get("embeddings", []),
+                "metadatas": sampled_songs.get("metadatas", []),
+            }
+        else:
+            # 小規模DBの場合は従来の方法（全件取得→ランダム選択）
+            all_songs = self.collection.get(limit=total_count, include=["embeddings", "metadatas"])
+
+            if not all_songs["ids"]:
+                return {"ids": [], "embeddings": [], "metadatas": []}
+
+            # ランダムにインデックスを選択
+            indices = list(range(len(all_songs["ids"])))
+            random.shuffle(indices)
+            sampled_indices = indices[:sample_size]
+
+            # サンプリングされたデータを抽出
+            sampled_data = {
+                "ids": [all_songs["ids"][i] for i in sampled_indices],
+                "embeddings": [all_songs["embeddings"][i] for i in sampled_indices] if all_songs.get("embeddings") else [],
+                "metadatas": [all_songs["metadatas"][i] for i in sampled_indices] if all_songs.get("metadatas") else [],
+            }
+
+            return sampled_data
 
 
 # ===== 動作確認用 =====

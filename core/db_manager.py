@@ -245,10 +245,21 @@ class SongVectorDB:
     def update_metadata(self, song_id: str, metadata: dict) -> None:
         """
         楽曲のメタデータを更新する
+        
+        注意: このメソッドはメタデータを完全に置き換えます（マージではありません）
+        既存のメタデータを保持したい場合は、先にget_song()で取得してから
+        更新したいフィールドのみ変更してください。
 
         Args:
             song_id: 楽曲ID
-            metadata: 更新するメタデータ
+            metadata: 更新するメタデータ（既存のメタデータを完全に置き換えます）
+            
+        Example:
+            # 既存のメタデータを保持しながら更新
+            song_data = db.get_song(song_id, include_embedding=False)
+            metadata = song_data["metadata"]
+            metadata["excluded_from_search"] = True
+            db.update_metadata(song_id, metadata)
         """
         self.collection.update(ids=[song_id], metadatas=[metadata])
 

@@ -250,20 +250,18 @@ class SongVectorDB:
     ) -> dict:
         """
         メタデータの複数フィールドでテキスト部分一致検索を行う
-        （ただしChromaDBはテキスト部分一致の where フィルタをサポートしていないため、
-        　全件取得してからPython側で絞る）
+        100k件まで取得してPython側で絞込み（メモリ効率とのバランス）
 
         Args:
             keyword: 検索キーワード
-            limit: 最大表示件数
-            where: メタデータフィルタ（オプション）
+            limit: 最大表示件数（デフォルト: 10000）
+            where: 追加のメタデータフィルタ（オプション）
 
         Returns:
-            マッチした楽曲一覧
+            マッチした楽曲一覧（limit 件以下）
         """
-        # DB側では where フィルタのみ適用（テキスト部分一致は非対応）
-        # 実際には全件取得が必要なため、十分大きな limit を指定
-        fetch_limit = min(100000, max(10000, limit * 10))  # 表示件数の10倍か100000まで
+        # DB側で 100k 件まで取得（メモリ効率のため上限設定）
+        fetch_limit = 100000
         all_songs = self.list_all(limit=fetch_limit, where=where)
 
         if not all_songs.get("ids"):
@@ -273,9 +271,7 @@ class SongVectorDB:
         keyword_lower = keyword.lower()
 
         for idx, song_id in enumerate(all_songs["ids"]):
-            metadata = (
-                all_songs["metadatas"][idx] if all_songs["metadatas"] else {}
-            )
+            metadata = all_songs["metadatas"][idx] if all_songs["metadatas"] else {}
             source_dir = metadata.get("source_dir", "").lower()
             song_title = metadata.get("song_title", "").lower()
 
@@ -296,18 +292,18 @@ class SongVectorDB:
     def update_metadata(self, song_id: str, metadata: dict) -> None:
         """
         楽曲のメタデータを更新する
-        
+
         注意: このメソッドはメタデータを完全に置き換えます（マージではありません）
         既存のメタデータを保持したい場合は、先にget_song()で取得してから
         更新したいフィールドのみ変更してください。
-        
+
         曲が存在しない場合でもエラーは発生せず、静かに失敗します。
         確実に更新したい場合は、事前にget_song()で存在確認してください。
 
         Args:
             song_id: 楽曲ID
             metadata: 更新するメタデータ（既存のメタデータを完全に置き換えます）
-            
+
         Example:
             # 既存のメタデータを保持しながら更新
             song_data = db.get_song(song_id, include_embedding=False)
@@ -321,11 +317,11 @@ class SongVectorDB:
     def get_random_sample(self, sample_percentage: float = 0.05) -> dict:
         """
         データベースからランダムにサンプリングする
-        
+
         メモリ効率的な実装：
         - 小規模DB（<10k曲）: 全件読み込み後にランダムサンプリング
         - 大規模DB（>=10k曲）: IDのみ読み込み→ランダム選択→該当曲のみ取得
-        
+
         これにより100万曲規模のデータベースでもメモリを圧迫しません。
 
         Args:
@@ -348,22 +344,21 @@ class SongVectorDB:
         if total_count >= LARGE_DB_THRESHOLD:
             # Step 1: IDのみを取得（メモリ効率的）
             all_ids_result = self.collection.get(limit=total_count, include=[])
-            
+
             if not all_ids_result["ids"]:
                 return {"ids": [], "embeddings": [], "metadatas": []}
-            
+
             all_ids = all_ids_result["ids"]
-            
+
             # Step 2: ランダムにIDを選択（実際の取得件数に合わせて調整）
             actual_sample_size = min(sample_size, len(all_ids))
             sampled_ids = random.sample(all_ids, actual_sample_size)
-            
+
             # Step 3: 選択されたIDの楽曲のみ取得
             sampled_songs = self.collection.get(
-                ids=sampled_ids,
-                include=["embeddings", "metadatas"]
+                ids=sampled_ids, include=["embeddings", "metadatas"]
             )
-            
+
             return {
                 "ids": sampled_songs["ids"],
                 "embeddings": sampled_songs.get("embeddings", []),
@@ -371,7 +366,9 @@ class SongVectorDB:
             }
         else:
             # 小規模DBの場合は従来の方法（全件取得→ランダム選択）
-            all_songs = self.collection.get(limit=total_count, include=["embeddings", "metadatas"])
+            all_songs = self.collection.get(
+                limit=total_count, include=["embeddings", "metadatas"]
+            )
 
             if not all_songs["ids"]:
                 return {"ids": [], "embeddings": [], "metadatas": []}
@@ -384,8 +381,16 @@ class SongVectorDB:
             # サンプリングされたデータを抽出
             sampled_data = {
                 "ids": [all_songs["ids"][i] for i in sampled_indices],
-                "embeddings": [all_songs["embeddings"][i] for i in sampled_indices] if all_songs.get("embeddings") else [],
-                "metadatas": [all_songs["metadatas"][i] for i in sampled_indices] if all_songs.get("metadatas") else [],
+                "embeddings": (
+                    [all_songs["embeddings"][i] for i in sampled_indices]
+                    if all_songs.get("embeddings")
+                    else []
+                ),
+                "metadatas": (
+                    [all_songs["metadatas"][i] for i in sampled_indices]
+                    if all_songs.get("metadatas")
+                    else []
+                ),
             }
 
             return sampled_data

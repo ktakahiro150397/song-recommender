@@ -37,6 +37,7 @@ def load_songs_as_dataframe(db: SongVectorDB, limit: int = 1000) -> pd.DataFrame
                 "ID": song_id,
                 "source_dir": metadata.get("source_dir", ""),
                 "filename": metadata.get("filename", ""),
+                "検索除外": metadata.get("excluded_from_search", False),
             }
         )
 
@@ -59,6 +60,73 @@ def delete_songs(song_ids: list[str]) -> tuple[int, list[str]]:
             errors.append(f"{song_id}: {str(e)}")
 
     return success_count, errors
+
+
+def toggle_excluded_flag(song_ids: list[str], exclude: bool) -> tuple[int, list[str]]:
+    """複数の曲の検索除外フラグを全DBで更新"""
+    success_count = 0
+    errors = []
+
+    for song_id in song_ids:
+        try:
+            # 全DBで更新（Full/Balance/Minimal）
+            for collection_name in DB_PATHS.values():
+                db = SongVectorDB(collection_name=collection_name, distance_fn="cosine")
+                # 既存のメタデータを取得
+                song_data = db.get_song(song_id, include_embedding=False)
+                if song_data and song_data.get("metadata"):
+                    metadata = song_data["metadata"]
+                    metadata["excluded_from_search"] = exclude
+                    db.update_metadata(song_id, metadata)
+            success_count += 1
+        except Exception as e:
+            errors.append(f"{song_id}: {str(e)}")
+
+    return success_count, errors
+
+
+def find_potential_duplicates(db: SongVectorDB, limit: int = 10000) -> list[tuple[str, list[str]]]:
+    """
+    曲名の類似性から重複の可能性がある曲をグループ化
+    
+    Returns:
+        [(基準曲ID, [類似曲IDリスト]), ...] のリスト
+    """
+    import difflib
+    
+    all_songs = db.list_all(limit=limit)
+    if not all_songs["ids"]:
+        return []
+    
+    song_ids = all_songs["ids"]
+    duplicates = []
+    processed = set()
+    
+    for i, song_id in enumerate(song_ids):
+        if song_id in processed:
+            continue
+            
+        # このIDと類似している他のIDを探す
+        similar_songs = []
+        base_name = song_id.lower()
+        
+        for j, other_id in enumerate(song_ids):
+            if i == j or other_id in processed:
+                continue
+                
+            other_name = other_id.lower()
+            # 類似度を計算（0.7以上で類似とみなす）
+            similarity = difflib.SequenceMatcher(None, base_name, other_name).ratio()
+            
+            if similarity > 0.7:
+                similar_songs.append(other_id)
+                processed.add(other_id)
+        
+        if similar_songs:
+            duplicates.append((song_id, similar_songs))
+            processed.add(song_id)
+    
+    return duplicates
 
 
 # ========== メイン画面 ==========
@@ -125,6 +193,13 @@ source_dir_filter = st.sidebar.text_input(
     placeholder="例: gakumas_mv",
 )
 
+# 検索除外フィルター
+show_excluded = st.sidebar.checkbox(
+    "検索除外曲を表示",
+    value=True,
+    help="検索除外フラグが立っている曲も表示します",
+)
+
 # データ読み込み
 if search_query or source_dir_filter:
     # フィルタがある場合は全データを取得
@@ -151,6 +226,9 @@ if source_dir_filter:
     filtered_df = filtered_df[
         filtered_df["source_dir"].str.contains(source_dir_filter, case=False, na=False)
     ]
+
+if not show_excluded:
+    filtered_df = filtered_df[filtered_df["検索除外"] == False]
 
 st.info(
     f"表示中: {len(filtered_df):,} 件 / 全 {len(df):,} 件（DB内: {total_count:,} 件）"
@@ -187,6 +265,11 @@ edited_df = st.data_editor(
         "filename": st.column_config.TextColumn(
             "ファイル名",
             width="large",
+        ),
+        "検索除外": st.column_config.CheckboxColumn(
+            "検索除外",
+            help="このフラグがONの曲は検索結果から除外されます",
+            default=False,
         ),
     },
     hide_index=True,
@@ -230,6 +313,70 @@ if selected_songs:
                 st.text(f"• {song}")
 else:
     st.info("削除する曲をチェックで選択してください")
+
+# 検索除外フラグの管理
+st.subheader("🏷️ 検索除外フラグ管理")
+
+if selected_songs:
+    st.info(f"💡 {len(selected_songs)} 件選択中")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("✅ 検索除外にする", type="secondary", use_container_width=True):
+            with st.spinner("検索除外フラグを設定中..."):
+                success_count, errors = toggle_excluded_flag(selected_songs, True)
+            
+            if errors:
+                st.error(f"更新完了: {success_count} 件 / エラー: {len(errors)} 件")
+                with st.expander("エラー詳細"):
+                    for err in errors:
+                        st.text(err)
+            else:
+                st.success(f"✅ {success_count} 件を検索除外にしました")
+            
+            st.rerun()
+    
+    with col2:
+        if st.button("🔓 検索除外を解除", type="secondary", use_container_width=True):
+            with st.spinner("検索除外フラグを解除中..."):
+                success_count, errors = toggle_excluded_flag(selected_songs, False)
+            
+            if errors:
+                st.error(f"更新完了: {success_count} 件 / エラー: {len(errors)} 件")
+                with st.expander("エラー詳細"):
+                    for err in errors:
+                        st.text(err)
+            else:
+                st.success(f"✅ {success_count} 件の検索除外を解除しました")
+            
+            st.rerun()
+else:
+    st.info("検索除外フラグを変更する曲をチェックで選択してください")
+
+# 重複検出セクション
+st.divider()
+st.subheader("🔍 重複曲検出")
+
+st.info("💡 曲名の類似性から重複の可能性がある曲をグループ表示します")
+
+if st.button("🔍 重複検出を実行", type="secondary"):
+    with st.spinner("重複を検出中..."):
+        duplicates = find_potential_duplicates(db, limit=total_count)
+    
+    if duplicates:
+        st.success(f"✅ {len(duplicates)} グループの重複候補を検出しました")
+        
+        for idx, (base_song, similar_songs) in enumerate(duplicates, 1):
+            with st.expander(f"グループ {idx}: {base_song} + {len(similar_songs)} 件"):
+                st.write(f"**基準曲:** {base_song}")
+                st.write(f"**類似曲 ({len(similar_songs)} 件):**")
+                for similar in similar_songs:
+                    st.text(f"  • {similar}")
+                
+                st.caption("💡 重複と思われる曲を上の表で選択して、削除または検索除外してください")
+    else:
+        st.info("重複候補は見つかりませんでした")
 
 # リフレッシュボタン
 if st.sidebar.button("🔄 再読み込み"):

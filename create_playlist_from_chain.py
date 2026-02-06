@@ -206,8 +206,8 @@ def chain_search_to_list(
 
             vector = current_song["embedding"]
             # 検索除外フラグが False (未設定を含む) の曲のみ検索
-            # フィルタがある場合はより多くの候補を取得（絞られる分を考慮）
-            n_candidates = max(100, len(visited) * 2 + 50)
+            # パフォーマンス最適化: 候補数を50に固定（複数DBがあるため十分）
+            n_candidates = 50
             search_result = db.search_similar(
                 query_embedding=vector,
                 n_results=n_candidates,

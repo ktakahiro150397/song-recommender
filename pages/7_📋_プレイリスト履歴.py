@@ -115,10 +115,12 @@ for idx, header in enumerate(headers, 1):
 
     header_comment = header.get("header_comment") or ""
 
+    # プレイリスト名をクリック可能なリンクとして表示
+    st.markdown(f"### [{playlist_name}]({playlist_url})")
+    
     header_df = pd.DataFrame(
         {
             "項目": [
-                "プレイリスト名",
                 "最初の曲",
                 "プレイリストID",
                 "URL",
@@ -126,7 +128,6 @@ for idx, header in enumerate(headers, 1):
                 "作成日時",
             ],
             "内容": [
-                playlist_name,
                 first_song_id,
                 playlist_id,
                 playlist_url,

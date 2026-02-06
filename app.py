@@ -21,8 +21,7 @@ if not st.user.is_logged_in:
         st.login()
     st.stop()
 
-if st.button("ログアウト"):
-    st.logout()
+# st.text(getattr(st.user, "sub", ""))
 
 # ページ定義
 pages = [
@@ -39,6 +38,25 @@ pages = [
 
 # ナビゲーションを設定
 pg = st.navigation(pages)
+
+if pg.title == "TOP":
+    user_email = getattr(st.user, "email", "")
+    with st.container(border=False):
+        email_col, button_col = st.columns([6, 4])
+        with email_col:
+            st.markdown(f"**{user_email}**" if user_email else "**ログイン中**")
+        with button_col:
+            if st.button("ログアウト", use_container_width=True):
+                st.logout()
+            st.markdown(
+                """
+                <div style="display: flex; justify-content: flex-end; align-items: center; min-width: 400px; max-width: 500px; margin-left: auto;">
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            if st.session_state.get("logout") or st.query_params.get("logout"):
+                st.logout()
 
 # ページを実行
 pg.run()

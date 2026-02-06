@@ -292,3 +292,30 @@ def unmark_as_processed(song_id: str, collection_name: str) -> bool:
             session.delete(processed)
             return True
         return False
+
+
+def get_songs_as_dict(song_ids: list[str]) -> dict[str, dict]:
+    """
+    複数の楽曲メタデータを辞書形式で取得する（高速ルックアップ用）
+
+    Args:
+        song_ids: 楽曲IDのリスト
+
+    Returns:
+        {song_id: metadata_dict} の辞書
+    """
+    songs = get_songs(song_ids)
+    return {
+        song.song_id: {
+            "filename": song.filename,
+            "song_title": song.song_title,
+            "artist_name": song.artist_name,
+            "source_dir": song.source_dir,
+            "youtube_id": song.youtube_id,
+            "file_extension": song.file_extension,
+            "file_size_mb": song.file_size_mb,
+            "registered_at": song.registered_at.isoformat(),
+            "excluded_from_search": song.excluded_from_search,
+        }
+        for song in songs
+    }

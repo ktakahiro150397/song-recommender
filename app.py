@@ -13,6 +13,17 @@ st.set_page_config(
     layout="wide",
 )
 
+# Require login before loading any pages.
+if not st.user.is_logged_in:
+    st.title("ログイン")
+    st.write("Googleアカウントでログインしてください")
+    if st.button("Googleでログイン"):
+        st.login()
+    st.stop()
+
+if st.button("ログアウト"):
+    st.logout()
+
 # ページ定義
 pages = [
     st.Page("home_page.py", title="TOP", icon="🏠", default=True),

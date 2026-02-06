@@ -652,7 +652,14 @@ def add_songs_batch(
     if not skip_mysql:
         from core.database import get_session
         from core.models import Song
+        from sqlalchemy import delete
 
+        # 既存レコードを先に削除（重複を避けるため）
+        with get_session() as session:
+            session.execute(delete(Song).where(Song.song_id.in_(song_ids)))
+            session.commit()
+
+        # 新しいレコードを挿入
         songs = []
         for data in song_data_list:
             (
@@ -700,7 +707,8 @@ def add_songs_batch(
 
     # ChromaDBには最小限のデータのみ保存
     excluded_flags = [False] * len(song_ids)
-    db.add_songs(song_ids, embeddings, excluded_flags)
+    source_dirs = [normalized_dir] * len(song_ids)
+    db.add_songs(song_ids, embeddings, excluded_flags, source_dirs)
 
     return len(song_data_list)
 

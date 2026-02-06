@@ -167,6 +167,10 @@ uv run main.py "フェスタ"
 # 表示曲数を指定（デフォルト: 60曲）
 uv run main.py "SOS" --count 30
 uv run main.py "SOS" -n 30
+
+# アーティストで絞り込み（部分一致）
+uv run main.py "SOS" --artist "YOASOBI"
+uv run main.py "SOS" -a "宇多田"
 ```
 
 複数の曲がヒットした場合は対話的に選択できます。

@@ -28,38 +28,41 @@ def add_alias_column():
     """user_identities テーブルに alias カラムを追加"""
     engine = create_engine(get_database_url())
 
-    with engine.connect() as conn:
-        # カラムが既に存在するかチェック
-        result = conn.execute(
-            text(
-                """
-                SELECT COUNT(*) as count
-                FROM information_schema.COLUMNS
-                WHERE TABLE_SCHEMA = :database
-                AND TABLE_NAME = 'user_identities'
-                AND COLUMN_NAME = 'alias'
-                """
-            ),
-            {"database": os.getenv("MYSQL_DATABASE", "song_recommender")},
-        )
-        count = result.scalar()
-
-        if count > 0:
-            print("✓ alias カラムは既に存在します")
-            return
-
-        # カラムを追加
-        print("alias カラムを追加中...")
-        conn.execute(
-            text(
-                """
-                ALTER TABLE user_identities
-                ADD COLUMN alias VARCHAR(100) NOT NULL DEFAULT '' AFTER email
-                """
+    try:
+        with engine.connect() as conn:
+            # カラムが既に存在するかチェック
+            result = conn.execute(
+                text(
+                    """
+                    SELECT COUNT(*) as count
+                    FROM information_schema.COLUMNS
+                    WHERE TABLE_SCHEMA = :database
+                    AND TABLE_NAME = 'user_identities'
+                    AND COLUMN_NAME = 'alias'
+                    """
+                ),
+                {"database": os.getenv("MYSQL_DATABASE", "song_recommender")},
             )
-        )
-        conn.commit()
-        print("✓ alias カラムを追加しました")
+            count = result.scalar()
+
+            if count > 0:
+                print("✓ alias カラムは既に存在します")
+                return
+
+            # カラムを追加
+            print("alias カラムを追加中...")
+            conn.execute(
+                text(
+                    """
+                    ALTER TABLE user_identities
+                    ADD COLUMN alias VARCHAR(100) NOT NULL DEFAULT '' AFTER email
+                    """
+                )
+            )
+            conn.commit()
+            print("✓ alias カラムを追加しました")
+    finally:
+        engine.dispose()
 
 
 if __name__ == "__main__":

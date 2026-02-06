@@ -108,12 +108,14 @@ def get_user_alias(user_sub: str) -> str:
             select(UserIdentity).where(UserIdentity.user_sub == user_sub)
         ).scalar_one_or_none()
 
-        return existing.alias if existing else ""
+        return existing.alias if existing and existing.alias else ""
 
 
 def update_user_alias(user_sub: str, alias: str) -> bool:
     """
     ユーザーのエイリアスを更新する
+    
+    注意: ユーザーが存在しない場合は新規作成されます（emailは空文字列）
 
     Args:
         user_sub: GoogleのSub
@@ -137,6 +139,8 @@ def update_user_alias(user_sub: str, alias: str) -> bool:
                 return True
             else:
                 # ユーザーが存在しない場合は作成
+                # 通常はログイン時に upsert_user_identity で作成されるが、
+                # エッジケースに備えて作成できるようにする
                 session.add(
                     UserIdentity(
                         user_sub=user_sub,
@@ -146,5 +150,8 @@ def update_user_alias(user_sub: str, alias: str) -> bool:
                     )
                 )
                 return True
-    except Exception:
+    except Exception as e:
+        # データベースエラーが発生した場合はログに記録して False を返す
+        import logging
+        logging.error(f"Failed to update user alias for {user_sub}: {e}")
         return False

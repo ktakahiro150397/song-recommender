@@ -551,9 +551,14 @@ def add_song(
         else:
             print(f"   [debug] add_song: MySQL側へのメタデータ登録 スキップ")
 
-    # ChromaDBには最小限のデータのみ保存（IDとベクトルと検索除外フラグ）
+    # ChromaDBには最小限のデータのみ保存（IDとベクトルと検索除外フラグ、source_dir）
     print(f"   [debug] add_song: ChromaDB {collection_name} へのベクトル登録中")
-    db.add_song(song_id=filename, embedding=embedding, excluded_from_search=False)
+    db.add_song(
+        song_id=filename,
+        embedding=embedding,
+        excluded_from_search=False,
+        source_dir=normalized_dir,
+    )
     print(f"   [debug] add_song: ChromaDB {collection_name} へのベクトル登録完了")
 
     # 処理済みコレクションとしてマーク

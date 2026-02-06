@@ -13,6 +13,10 @@ st.set_page_config(
     layout="wide",
 )
 
+alias_notice = st.session_state.pop("alias_notice", "")
+if alias_notice:
+    st.toast(alias_notice)
+
 st.title("⚙️ ユーザー設定")
 st.markdown("---")
 
@@ -64,9 +68,13 @@ if submitted:
     else:
         if update_user_alias(user_sub, normalized_alias):
             if normalized_alias:
-                st.success(f"表示名を「{normalized_alias}」に更新しました")
+                st.session_state["alias_notice"] = (
+                    f"表示名を「{normalized_alias}」に更新しました"
+                )
             else:
-                st.success("表示名をクリアしました（メールアドレスが表示されます）")
+                st.session_state["alias_notice"] = (
+                    "表示名をクリアしました（メールアドレスが表示されます）"
+                )
             st.rerun()
         else:
             st.error("表示名の更新に失敗しました")

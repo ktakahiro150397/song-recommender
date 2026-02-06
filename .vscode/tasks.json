@@ -96,6 +96,26 @@
                 "reveal": "always",
                 "panel": "new"
             }
+        },
+        {
+            "label": "Create Download Script from YouTube",
+            "type": "shell",
+            "command": "uv",
+            "args": [
+                "run",
+                "create_dl_script_from_yt.py",
+                "--batch",
+                "--output",
+                "${input:dlScriptOutputDir}",
+                "--output-count",
+                "${input:dlScriptOutputCount}"
+            ],
+            "group": "build",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "new"
+            }
         }
     ],
     "inputs": [
@@ -141,6 +161,18 @@
             "description": "並列処理モード",
             "options": ["none", "thread", "process"],
             "default": "none"
+        },
+        {
+            "id": "dlScriptOutputDir",
+            "type": "promptString",
+            "description": "ダウンロードスクリプト出力フォルダ",
+            "default": "output_scripts"
+        },
+        {
+            "id": "dlScriptOutputCount",
+            "type": "promptString",
+            "description": "出力カウント（デフォルト: 0）",
+            "default": "0"
         }
     ]
 }

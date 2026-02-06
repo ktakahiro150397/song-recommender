@@ -470,9 +470,9 @@ def add_song(
     if youtube_id:
         existing = db.get_by_youtube_id(youtube_id)
         if existing:
-            print(
-                f"   ⏭️  YouTube動画ID ({youtube_id}) は既に登録済みです: {existing['id']}"
-            )
+            # print(
+            #     f"   ⏭️  YouTube動画ID ({youtube_id}) は既に登録済みです: {existing['id']}"
+            # )
             return False
 
     # 特徴量抽出
@@ -752,7 +752,8 @@ def main():
                                         f"    ❌ {mode} DB バッチ登録エラー: {str(e)}"
                                     )
                     else:
-                        print(f"    すべて登録済み ({skipped_count} 曲スキップ)")
+                        pass
+                        # print(f"    すべて登録済み ({skipped_count} 曲スキップ)")
 
                     # バッチをクリア
                     batch_files = []

@@ -65,6 +65,8 @@ services:
       # OAuth認証ファイル（YouTube Music API用）
       - ./oauth.json:/app/oauth.json:ro
       - ./browser.json:/app/browser.json:ro
+      # Streamlit認証設定（ログイン機能用）
+      - ./.streamlit/secrets.toml:/app/.streamlit/secrets.toml:ro
     environment:
       - STREAMLIT_SERVER_PORT=8501
       - STREAMLIT_SERVER_ADDRESS=0.0.0.0

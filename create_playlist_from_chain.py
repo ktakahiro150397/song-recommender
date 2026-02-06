@@ -151,11 +151,25 @@ def chain_search_to_list(
     results: list[tuple[str, float]] = []
     current_song_id = start_filename
 
+    # アーティストフィルタが指定されている場合、source_dir フィルタを構築
+    where_filter: dict | None = None
+    if artist_filter:
+        matching_songs = song_metadata_db.search_by_keyword(artist_filter, limit=10000)
+        matched_dirs = list(
+            set(metadata.get("source_dir", "") for _, metadata in matching_songs)
+        )
+        if not matched_dirs:
+            print(f"❌ '{artist_filter}' に一致するディレクトリが見つかりません。")
+            return []
+        # $in で複数のsource_dirをOR検索
+        where_filter = {"source_dir": {"$in": matched_dirs}}
+
     print(f"\n{'='*60}")
     print(f"🔗 連鎖検索開始: {start_filename}")
     print(f"   取得曲数: {n_songs}, DB数: {len(dbs)}")
     if artist_filter:
         print(f"   アーティストフィルタ: {artist_filter}")
+        print(f"   対象ディレクトリ: {len(matched_dirs)}個")
     print(f"{'='*60}")
 
     # 開始曲の存在確認（全てのDBで確認）
@@ -168,6 +182,14 @@ def chain_search_to_list(
     if exist_song is None:
         print(f"❌ 開始曲 {current_song_id} がDBに見つかりません。")
         return []
+
+    # フィルタが指定されている場合、開始曲がフィルタに含まれるか確認
+    if where_filter:
+        start_song_db = exist_song.get("metadata", {})
+        start_source_dir = start_song_db.get("source_dir", "")
+        if start_source_dir not in matched_dirs:
+            print(f"❌ 開始曲 {current_song_id} はフィルタ条件に含まれません。")
+            return []
 
     # 開始曲のメタデータをMySQLから取得
     start_song = song_metadata_db.get_song(current_song_id)
@@ -208,10 +230,23 @@ def chain_search_to_list(
             # 検索除外フラグが False (未設定を含む) の曲のみ検索
             # パフォーマンス最適化: 候補数を50に固定（複数DBがあるため十分）
             n_candidates = 50
+
+            # where_filter が指定されている場合は、artist_filter フラグと組み合わせる
+            combined_where = None
+            if where_filter:
+                combined_where = {
+                    "$and": [
+                        where_filter,
+                        {"excluded_from_search": {"$ne": True}},
+                    ]
+                }
+            else:
+                combined_where = {"excluded_from_search": {"$ne": True}}
+
             search_result = db.search_similar(
                 query_embedding=vector,
                 n_results=n_candidates,
-                where={"excluded_from_search": {"$ne": True}},
+                where=combined_where,
             )
 
             # 検索結果のIDリストを取得
@@ -223,14 +258,6 @@ def chain_search_to_list(
 
             for song_id, distance in zip(candidate_ids, candidate_distances):
                 metadata = metadata_dict.get(song_id, {})
-
-                # フィルタが指定されている場合は、source_dir で絞り込み
-                if artist_filter:
-                    source_dir = metadata.get("source_dir", "")
-                    # "data/" を除いた部分を取得して比較
-                    dir_name = source_dir.replace("data/", "").replace("data\\", "")
-                    if artist_filter.lower() not in dir_name.lower():
-                        continue
 
                 if song_id not in visited and distance < best_distance:
                     best_song = song_id

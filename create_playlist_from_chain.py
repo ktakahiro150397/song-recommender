@@ -37,9 +37,9 @@ def find_song_by_keyword(db: SongVectorDB, keyword: str, limit: int = 10) -> lis
     """
     キーワードで部分一致検索して曲を探す
     """
-    # db.search_by_keywordを使用（100k件まで対応）
-    result = db.search_by_keyword(keyword, limit=limit)
-    return result["ids"]
+    # MySQLでキーワード検索（セッション内で辞書化済み）
+    results = song_metadata_db.search_by_keyword(keyword, limit=limit)
+    return [song_id for song_id, _ in results]
 
 
 def select_song_interactive(db: SongVectorDB, keyword: str) -> str | None:

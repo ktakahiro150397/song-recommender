@@ -314,6 +314,7 @@ def main():
         print("=" * 50)
         print('  uv run main.py "フェスタ"           # 部分一致で開始曲を検索')
         print('  uv run main.py "SOS" --count 30    # 30曲まで表示')
+        print('  uv run main.py "SOS" --artist "YOASOBI"  # アーティストで絞り込み')
         print('  uv run main.py --list "アイマス"    # 曲を検索して一覧表示')
         return
 

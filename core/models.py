@@ -5,7 +5,16 @@ MySQLデータベースのテーブル構造を定義
 """
 
 from datetime import datetime
-from sqlalchemy import String, Integer, DateTime, Text, Index, Float, Boolean, ForeignKey
+from sqlalchemy import (
+    String,
+    Integer,
+    DateTime,
+    Text,
+    Index,
+    Float,
+    Boolean,
+    ForeignKey,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -83,9 +92,13 @@ class Song(Base):
     song_id: Mapped[str] = mapped_column(String(500), primary_key=True)
     filename: Mapped[str] = mapped_column(String(500), nullable=False)
     song_title: Mapped[str] = mapped_column(String(500), nullable=False)
-    artist_name: Mapped[str] = mapped_column(String(200), nullable=False, default="", server_default="")
+    artist_name: Mapped[str] = mapped_column(
+        String(200), nullable=False, default="", server_default=""
+    )
     source_dir: Mapped[str] = mapped_column(String(100), nullable=False)
-    youtube_id: Mapped[str] = mapped_column(String(11), nullable=False, default="", server_default="")
+    youtube_id: Mapped[str] = mapped_column(
+        String(11), nullable=False, default="", server_default=""
+    )
     file_extension: Mapped[str] = mapped_column(String(10), nullable=False)
     file_size_mb: Mapped[float] = mapped_column(Float, nullable=False)
     registered_at: Mapped[datetime] = mapped_column(
@@ -132,3 +145,75 @@ class ProcessedCollection(Base):
 
     def __repr__(self) -> str:
         return f"<ProcessedCollection(song_id='{self.song_id}', collection_name='{self.collection_name}')>"
+
+
+class PlaylistHeader(Base):
+    """作成済みプレイリストのヘッダー情報"""
+
+    __tablename__ = "playlist_headers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    playlist_id: Mapped[str] = mapped_column(String(200), unique=True, nullable=False)
+    playlist_name: Mapped[str] = mapped_column(String(500), nullable=False)
+    playlist_url: Mapped[str] = mapped_column(String(500), nullable=False)
+    creator_sub: Mapped[str] = mapped_column(String(200), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=datetime.now
+    )
+
+    __table_args__ = (
+        Index("idx_playlist_id", "playlist_id"),
+        Index("idx_creator_sub", "creator_sub"),
+        Index("idx_playlist_created_at", "created_at"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<PlaylistHeader(playlist_id='{self.playlist_id}', playlist_name='{self.playlist_name}')>"
+
+
+class PlaylistItem(Base):
+    """作成済みプレイリストの曲明細"""
+
+    __tablename__ = "playlist_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    playlist_id: Mapped[str] = mapped_column(
+        String(200),
+        ForeignKey("playlist_headers.playlist_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    seq: Mapped[int] = mapped_column(Integer, nullable=False)
+    song_id: Mapped[str] = mapped_column(String(500), nullable=False)
+    cosine_distance: Mapped[float] = mapped_column(Float, nullable=False)
+
+    __table_args__ = (
+        Index("idx_playlist_seq", "playlist_id", "seq"),
+        Index("idx_playlist_song_id", "song_id"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<PlaylistItem(playlist_id='{self.playlist_id}', seq={self.seq}, song_id='{self.song_id}')>"
+
+
+class UserIdentity(Base):
+    """ユーザーSubとメールアドレスの紐付け"""
+
+    __tablename__ = "user_identities"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_sub: Mapped[str] = mapped_column(String(200), unique=True, nullable=False)
+    email: Mapped[str] = mapped_column(
+        String(320), nullable=False, default="", server_default=""
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=datetime.now
+    )
+
+    __table_args__ = (
+        Index("idx_user_sub", "user_sub"),
+        Index("idx_user_email", "email"),
+        Index("idx_user_updated_at", "updated_at"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<UserIdentity(user_sub='{self.user_sub}', email='{self.email}')>"

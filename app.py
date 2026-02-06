@@ -7,6 +7,8 @@
 
 import streamlit as st
 
+from core.user_db import upsert_user_identity
+
 st.set_page_config(
     page_title="楽曲レコメンドシステム",
     page_icon="🎵",
@@ -21,13 +23,21 @@ if not st.user.is_logged_in:
         st.login()
     st.stop()
 
-# st.text(getattr(st.user, "sub", ""))
+upsert_user_identity(
+    user_sub=getattr(st.user, "sub", ""),
+    email=getattr(st.user, "email", ""),
+)
 
 # ページ定義
 pages = [
     st.Page("home_page.py", title="TOP", icon="🏠", default=True),
     st.Page("pages/1_🎵_楽曲検索.py", title="楽曲検索", icon="🎵"),
     st.Page("pages/5_📺_YouTube登録.py", title="YouTube登録", icon="📺"),
+    st.Page(
+        "pages/7_📋_プレイリスト履歴.py",
+        title="プレイリスト履歴",
+        icon="📋",
+    ),
     st.Page(
         "pages/6_📋_登録済みコンテンツ管理.py",
         title="登録済みコンテンツ管理",

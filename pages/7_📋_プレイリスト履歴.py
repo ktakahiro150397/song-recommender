@@ -113,14 +113,16 @@ for idx, header in enumerate(headers, 1):
     items = playlist_db.get_playlist_items(playlist_id)
     first_song_id = items[0]["song_id"] if items else "-"
 
+    header_comment = header.get("header_comment") or ""
+
     header_df = pd.DataFrame(
         {
             "項目": [
                 "プレイリスト名",
-                "1曲目ID",
+                "最初の曲",
                 "プレイリストID",
                 "URL",
-                "作成者メール",
+                "作成者",
                 "作成日時",
             ],
             "内容": [
@@ -134,6 +136,58 @@ for idx, header in enumerate(headers, 1):
         }
     )
     st.dataframe(header_df, use_container_width=True, hide_index=True)
+
+    if header_comment:
+        header_comment_html = html.escape(header_comment).replace("\n", "<br>")
+        st.markdown(
+            f"**プレイリストコメント**<br>{header_comment_html}",
+            unsafe_allow_html=True,
+        )
+
+    with st.expander("コメント", expanded=False):
+        comments = playlist_db.list_playlist_comments(playlist_id, limit=200)
+        comment_user_subs = [comment["user_sub"] for comment in comments]
+        comment_email_map = get_emails_by_subs(comment_user_subs)
+
+        if comments:
+            for comment in comments:
+                comment_email = comment_email_map.get(comment["user_sub"], "-")
+                comment_time = format_created_at(comment["created_at"], timezone)
+                with st.chat_message("user"):
+                    st.markdown(f"**{comment_email}** · {comment_time}")
+                    st.write(comment["comment"])
+        else:
+            st.info("コメントはまだありません")
+
+        if user_sub:
+            form_key = f"playlist_comment_form_{playlist_id}"
+            input_key = f"playlist_comment_input_{playlist_id}"
+            with st.form(key=form_key, clear_on_submit=True):
+                comment_input = st.text_area(
+                    "コメントを追加",
+                    key=input_key,
+                    placeholder="このプレイリストへのコメントを書く",
+                )
+                st.caption("500文字以内")
+                submitted = st.form_submit_button("送信", type="primary")
+
+            if submitted:
+                normalized_comment = (comment_input or "").strip()
+                if not normalized_comment:
+                    st.warning("コメントが空です")
+                elif len(normalized_comment) > 500:
+                    st.warning("コメントは500文字以内で入力してください")
+                elif playlist_db.add_playlist_comment(
+                    playlist_id=playlist_id,
+                    user_sub=user_sub,
+                    comment=normalized_comment,
+                ):
+                    st.success("コメントを追加しました")
+                    st.rerun()
+                else:
+                    st.warning("コメントを追加できませんでした")
+        else:
+            st.info("コメント投稿にはログインが必要です")
 
     with st.expander(f"プレイリスト一覧 ({len(items)}曲)", expanded=False):
         if not items:

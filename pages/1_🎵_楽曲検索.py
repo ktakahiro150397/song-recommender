@@ -590,6 +590,12 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
                 key="playlist_name_input",
             )
 
+            playlist_header_comment = st.text_area(
+                "プレイリストコメント",
+                placeholder="例: 今回は落ち着いた曲中心で作成",
+                key="playlist_header_comment_input",
+            )
+
             # プレイリスト作成ボタンのコールバック関数
             def start_playlist_creation():
                 st.session_state.playlist_creating = True
@@ -654,9 +660,22 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
                             status_text.empty()
 
                             if video_ids:
+                                description_lines = [
+                                    f"曲調おすすめプレイリスト検索結果 ({len(video_ids)}曲)"
+                                ]
+                                if playlist_header_comment and playlist_header_comment.strip():
+                                    description_lines.extend(
+                                        [
+                                            "",
+                                            "プレイリストコメント:",
+                                            playlist_header_comment.strip(),
+                                        ]
+                                    )
+                                playlist_description = "\n".join(description_lines)
+
                                 playlist_id = ytmusic.create_playlist(
                                     playlist_name,
-                                    f"曲調おすすめプレイリスト検索結果 ({len(video_ids)}曲)",
+                                    playlist_description,
                                     privacy="PUBLIC",
                                     video_ids=video_ids,
                                 )
@@ -691,6 +710,7 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
                                     playlist_url=playlist_url,
                                     creator_sub=creator_sub,
                                     items=items,
+                                    header_comment=playlist_header_comment,
                                 )
                                 if not saved:
                                     st.warning("⚠️ プレイリストのDB保存に失敗しました")

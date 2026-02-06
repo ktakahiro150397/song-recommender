@@ -8,7 +8,7 @@ from datetime import datetime
 from sqlalchemy import select, delete
 
 from core.database import get_session
-from core.models import PlaylistHeader, PlaylistItem
+from core.models import PlaylistHeader, PlaylistItem, PlaylistComment
 
 
 def save_playlist_result(
@@ -17,6 +17,7 @@ def save_playlist_result(
     playlist_url: str,
     creator_sub: str,
     items: list[dict],
+    header_comment: str | None = None,
 ) -> bool:
     """
     プレイリストのヘッダーと明細を保存する
@@ -40,6 +41,8 @@ def save_playlist_result(
             header.playlist_name = playlist_name
             header.playlist_url = playlist_url
             header.creator_sub = creator_sub
+            if header_comment is not None:
+                header.header_comment = header_comment
             header.created_at = datetime.now()
             session.execute(
                 delete(PlaylistItem).where(PlaylistItem.playlist_id == playlist_id)
@@ -50,6 +53,7 @@ def save_playlist_result(
                 playlist_name=playlist_name,
                 playlist_url=playlist_url,
                 creator_sub=creator_sub,
+                header_comment=header_comment,
                 created_at=datetime.now(),
             )
             session.add(header)
@@ -101,6 +105,73 @@ def list_playlist_headers(
                 "playlist_name": row.playlist_name,
                 "playlist_url": row.playlist_url,
                 "creator_sub": row.creator_sub,
+                "header_comment": row.header_comment or "",
+                "created_at": row.created_at.isoformat(),
+            }
+            for row in rows
+        ]
+
+
+def add_playlist_comment(
+    playlist_id: str,
+    user_sub: str,
+    comment: str,
+) -> bool:
+    """
+    プレイリストコメントを追加する
+
+    Args:
+        playlist_id: YouTubeプレイリストID
+        user_sub: 投稿ユーザーのSub
+        comment: コメント本文
+    """
+    if not playlist_id or not user_sub or not comment or not comment.strip():
+        return False
+
+    with get_session() as session:
+        session.add(
+            PlaylistComment(
+                playlist_id=playlist_id,
+                user_sub=user_sub,
+                comment=comment.strip(),
+                created_at=datetime.now(),
+            )
+        )
+
+    return True
+
+
+def list_playlist_comments(
+    playlist_id: str,
+    limit: int = 200,
+) -> list[dict]:
+    """
+    プレイリストコメント一覧を取得する
+
+    Args:
+        playlist_id: YouTubeプレイリストID
+        limit: 取得件数上限
+
+    Returns:
+        コメントの辞書リスト
+    """
+    if not playlist_id:
+        return []
+
+    with get_session() as session:
+        stmt = (
+            select(PlaylistComment)
+            .where(PlaylistComment.playlist_id == playlist_id)
+            .order_by(PlaylistComment.created_at.asc())
+            .limit(limit)
+        )
+        rows = list(session.execute(stmt).scalars().all())
+        return [
+            {
+                "id": row.id,
+                "playlist_id": row.playlist_id,
+                "user_sub": row.user_sub,
+                "comment": row.comment,
                 "created_at": row.created_at.isoformat(),
             }
             for row in rows

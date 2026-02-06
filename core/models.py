@@ -157,6 +157,7 @@ class PlaylistHeader(Base):
     playlist_name: Mapped[str] = mapped_column(String(500), nullable=False)
     playlist_url: Mapped[str] = mapped_column(String(500), nullable=False)
     creator_sub: Mapped[str] = mapped_column(String(200), nullable=False)
+    header_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=datetime.now
     )
@@ -169,6 +170,32 @@ class PlaylistHeader(Base):
 
     def __repr__(self) -> str:
         return f"<PlaylistHeader(playlist_id='{self.playlist_id}', playlist_name='{self.playlist_name}')>"
+
+
+class PlaylistComment(Base):
+    """プレイリストコメント（チャット形式）"""
+
+    __tablename__ = "playlist_comments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    playlist_id: Mapped[str] = mapped_column(
+        String(200),
+        ForeignKey("playlist_headers.playlist_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    user_sub: Mapped[str] = mapped_column(String(200), nullable=False)
+    comment: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=datetime.now
+    )
+
+    __table_args__ = (
+        Index("idx_playlist_comment_playlist", "playlist_id", "created_at"),
+        Index("idx_playlist_comment_user", "user_sub"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<PlaylistComment(playlist_id='{self.playlist_id}', user_sub='{self.user_sub}')>"
 
 
 class PlaylistItem(Base):

@@ -63,7 +63,11 @@ class SongVectorDB:
         )
 
     def add_song(
-        self, song_id: str, embedding: list[float], excluded_from_search: bool = False
+        self,
+        song_id: str,
+        embedding: list[float],
+        excluded_from_search: bool = False,
+        source_dir: str | None = None,
     ) -> None:
         """
         楽曲をDBに登録する（ベクトルと最小限のメタデータのみ）
@@ -72,8 +76,11 @@ class SongVectorDB:
             song_id: 楽曲の一意なID
             embedding: 音声特徴量ベクトル
             excluded_from_search: 検索除外フラグ（デフォルト: False）
+            source_dir: ソースディレクトリ（オプション）
         """
         metadata = {"excluded_from_search": excluded_from_search}
+        if source_dir is not None:
+            metadata["source_dir"] = source_dir
         self.collection.add(
             ids=[song_id],
             embeddings=[embedding],
@@ -85,6 +92,7 @@ class SongVectorDB:
         song_ids: list[str],
         embeddings: list[list[float]],
         excluded_flags: list[bool] | None = None,
+        source_dirs: list[str] | None = None,
     ) -> None:
         """
         複数の楽曲を一括でDBに登録する（バルクインサート）
@@ -93,14 +101,19 @@ class SongVectorDB:
             song_ids: 楽曲IDのリスト
             embeddings: 音声特徴量ベクトルのリスト
             excluded_flags: 検索除外フラグのリスト（オプション、デフォルトはすべてFalse）
+            source_dirs: ソースディレクトリのリスト（オプション）
         """
         if not song_ids:
             return
 
-        metadatas = [
-            {"excluded_from_search": flag}
-            for flag in (excluded_flags or [False] * len(song_ids))
-        ]
+        metadatas = []
+        for i, song_id in enumerate(song_ids):
+            metadata = {
+                "excluded_from_search": (excluded_flags or [False] * len(song_ids))[i]
+            }
+            if source_dirs and i < len(source_dirs) and source_dirs[i] is not None:
+                metadata["source_dir"] = source_dirs[i]
+            metadatas.append(metadata)
 
         self.collection.add(
             ids=song_ids,

@@ -174,11 +174,25 @@ def chain_search(
     visited: set[str] = set()
     current_song_id = start_filename
 
+    # アーティストフィルタが指定されている場合、source_dir フィルタを構築
+    where_filter: dict | None = None
+    if artist_filter:
+        matching_songs = song_metadata_db.search_by_keyword(artist_filter, limit=10000)
+        matched_dirs = list(
+            set(metadata.get("source_dir", "") for _, metadata in matching_songs)
+        )
+        if not matched_dirs:
+            print(f"❌ '{artist_filter}' に一致するディレクトリが見つかりません。")
+            return
+        # $in で複数のsource_dirをOR検索
+        where_filter = {"source_dir": {"$in": matched_dirs}}
+
     print(f"\n{'='*60}")
     print(f"連鎖検索開始: {start_filename}")
     print(f"表示曲数: {n_songs}, DB数: {len(dbs)}")
     if artist_filter:
         print(f"アーティストフィルタ: {artist_filter}")
+        print(f"対象ディレクトリ: {len(matched_dirs)}個")
     print(f"{'='*60}")
 
     # 開始曲の存在確認（最初のDBで確認）
@@ -186,6 +200,14 @@ def chain_search(
     if exist_song is None:
         print(f"開始曲 {current_song_id} がDBに見つかりません。")
         return
+
+    # フィルタが指定されている場合、開始曲がフィルタに含まれるか確認
+    if where_filter:
+        start_metadata = exist_song.get("metadata", {})
+        start_source_dir = start_metadata.get("source_dir", "")
+        if start_source_dir not in matched_dirs:
+            print(f"❌ 開始曲 {current_song_id} はフィルタ条件に含まれません。")
+            return
 
     # 開始曲を表示
     start_metadata = exist_song.get("metadata", {})
@@ -214,7 +236,7 @@ def chain_search(
             # 十分な数の候補を取得（訪問済みと絞り込みを考慮して多めに）
             n_candidates = max(100, len(visited) * 2 + 50)
             search_result = db.search_similar(
-                query_embedding=vector, n_results=n_candidates
+                query_embedding=vector, n_results=n_candidates, where=where_filter
             )
 
             # このDBで未訪問の最も近い曲を探す
@@ -223,14 +245,6 @@ def chain_search(
                 search_result["distances"][0],
                 search_result["metadatas"][0],
             ):
-                # フィルタが指定されている場合は、source_dir で絞り込み
-                if artist_filter:
-                    source_dir = metadata.get("source_dir", "") if metadata else ""
-                    # "data/" を除いた部分を取得して比較
-                    dir_name = source_dir.replace("data/", "").replace("data\\", "")
-                    if artist_filter.lower() not in dir_name.lower():
-                        continue
-
                 if song_id not in visited and distance < best_distance:
                     best_song = song_id
                     best_distance = distance
@@ -238,7 +252,7 @@ def chain_search(
                     break  # このDBでの最良は見つかった
 
         if best_song is None:
-            print(f"\nこれ以上未訪問の類似曲がありません。")
+            print(f"\n⚠️  これ以上未訪問の類似曲がありません。")
             break
 
         # 次の曲を表示

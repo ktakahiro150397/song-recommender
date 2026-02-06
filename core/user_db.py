@@ -61,3 +61,90 @@ def get_emails_by_subs(user_subs: list[str]) -> dict[str, str]:
             .all()
         )
         return {row.user_sub: row.email for row in rows}
+
+
+def get_display_names_by_subs(user_subs: list[str]) -> dict[str, str]:
+    """
+    複数のSubから表示名（エイリアスまたはメールアドレス）を取得する
+
+    Args:
+        user_subs: Subのリスト
+
+    Returns:
+        {sub: display_name} の辞書（エイリアスがあればエイリアス、なければメールアドレス）
+    """
+    if not user_subs:
+        return {}
+
+    with get_session() as session:
+        rows = list(
+            session.execute(
+                select(UserIdentity).where(UserIdentity.user_sub.in_(user_subs))
+            )
+            .scalars()
+            .all()
+        )
+        return {
+            row.user_sub: row.alias if row.alias else row.email
+            for row in rows
+        }
+
+
+def get_user_alias(user_sub: str) -> str:
+    """
+    ユーザーのエイリアスを取得する
+
+    Args:
+        user_sub: GoogleのSub
+
+    Returns:
+        エイリアス（設定されていない場合は空文字列）
+    """
+    if not user_sub:
+        return ""
+
+    with get_session() as session:
+        existing = session.execute(
+            select(UserIdentity).where(UserIdentity.user_sub == user_sub)
+        ).scalar_one_or_none()
+
+        return existing.alias if existing else ""
+
+
+def update_user_alias(user_sub: str, alias: str) -> bool:
+    """
+    ユーザーのエイリアスを更新する
+
+    Args:
+        user_sub: GoogleのSub
+        alias: 新しいエイリアス
+
+    Returns:
+        更新が成功したかどうか
+    """
+    if not user_sub:
+        return False
+
+    try:
+        with get_session() as session:
+            existing = session.execute(
+                select(UserIdentity).where(UserIdentity.user_sub == user_sub)
+            ).scalar_one_or_none()
+
+            if existing:
+                existing.alias = alias
+                existing.updated_at = datetime.now()
+                return True
+            else:
+                # ユーザーが存在しない場合は作成
+                session.add(
+                    UserIdentity(
+                        user_sub=user_sub,
+                        email="",
+                        alias=alias,
+                        updated_at=datetime.now(),
+                    )
+                )
+                return True
+    except Exception:
+        return False

@@ -205,7 +205,7 @@ def chain_search_to_list(
                     artist_name = metadata.get("artist_name", "") if metadata else ""
                     if artist_filter.lower() not in artist_name.lower():
                         continue
-                
+
                 if song_id not in visited and distance < best_distance:
                     best_song = song_id
                     best_distance = distance

@@ -9,6 +9,7 @@ import pandas as pd
 from pathlib import Path
 
 from core.db_manager import SongVectorDB
+from core import song_metadata_db
 from config import DB_CONFIGS
 
 # ========== 設定 ==========
@@ -23,21 +24,21 @@ DB_PATHS = {
 
 def load_songs_as_dataframe(db: SongVectorDB, limit: int = 1000) -> pd.DataFrame:
     """DBから曲一覧を取得してDataFrameに変換"""
-    result = db.list_all(limit=limit)
+    # MySQLから曲一覧を取得
+    songs = song_metadata_db.list_all(limit=limit, exclude_from_search=False)
 
-    if not result["ids"]:
+    if not songs:
         return pd.DataFrame()
 
     data = []
-    for i, song_id in enumerate(result["ids"]):
-        metadata = result["metadatas"][i] if result["metadatas"] else {}
+    for song in songs:
         data.append(
             {
                 "選択": False,  # チェックボックス用
-                "ID": song_id,
-                "source_dir": metadata.get("source_dir", ""),
-                "filename": metadata.get("filename", ""),
-                "検索除外": metadata.get("excluded_from_search", False),
+                "ID": song.song_id,
+                "source_dir": song.source_dir,
+                "filename": song.filename,
+                "検索除外": song.excluded_from_search,
             }
         )
 
@@ -55,6 +56,9 @@ def delete_songs(song_ids: list[str]) -> tuple[int, list[str]]:
             for collection_name in DB_PATHS.values():
                 db = SongVectorDB(collection_name=collection_name, distance_fn="cosine")
                 db.delete_song(song_id)
+            
+            # MySQLからも削除
+            song_metadata_db.delete_song(song_id)
             success_count += 1
         except Exception as e:
             errors.append(f"{song_id}: {str(e)}")
@@ -72,12 +76,10 @@ def toggle_excluded_flag(song_ids: list[str], exclude: bool) -> tuple[int, list[
             # 全DBで更新（Full/Balance/Minimal）
             for collection_name in DB_PATHS.values():
                 db = SongVectorDB(collection_name=collection_name, distance_fn="cosine")
-                # 既存のメタデータを取得
-                song_data = db.get_song(song_id, include_embedding=False)
-                if song_data and song_data.get("metadata"):
-                    metadata = song_data["metadata"]
-                    metadata["excluded_from_search"] = exclude
-                    db.update_metadata(song_id, metadata)
+                db.update_excluded_from_search(song_id, exclude)
+            
+            # MySQLでも更新
+            song_metadata_db.update_excluded_from_search(song_id, exclude)
             success_count += 1
         except Exception as e:
             errors.append(f"{song_id}: {str(e)}")

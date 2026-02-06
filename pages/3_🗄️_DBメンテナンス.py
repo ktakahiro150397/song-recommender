@@ -375,14 +375,10 @@ if exclude_changes:
                             db_update = SongVectorDB(
                                 collection_name=collection_name, distance_fn="cosine"
                             )
-                            # 既存のメタデータを取得
-                            song_data = db_update.get_song(
-                                song_id, include_embedding=False
-                            )
-                            if song_data and song_data.get("metadata"):
-                                metadata = song_data["metadata"]
-                                metadata["excluded_from_search"] = should_exclude
-                                db_update.update_metadata(song_id, metadata)
+                            db_update.update_excluded_from_search(song_id, should_exclude)
+
+                        # MySQLでも更新
+                        song_metadata_db.update_excluded_from_search(song_id, should_exclude)
                         success_count += 1
                     except Exception as e:
                         errors.append(f"{song_id}: {str(e)}")
@@ -447,7 +443,7 @@ if selected_songs:
                 st.success(f"✅ {success_count} 件を検索除外にしました")
                 # セッション状態を更新
                 for song_id in selected_songs:
-                    st.session_state.exclude_flags[song_id] = True
+                    st.session_state.exclude_flags_session[song_id] = True
 
             st.rerun()
 
@@ -467,7 +463,7 @@ if selected_songs:
                 st.success(f"✅ {success_count} 件の検索除外を解除しました")
                 # セッション状態を更新
                 for song_id in selected_songs:
-                    st.session_state.exclude_flags[song_id] = False
+                    st.session_state.exclude_flags_session[song_id] = False
 
             st.rerun()
 else:

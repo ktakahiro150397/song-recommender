@@ -214,6 +214,7 @@ def update_excluded_from_search(song_id: str, excluded: bool) -> bool:
         song = session.execute(stmt).scalar_one_or_none()
         if song:
             song.excluded_from_search = excluded
+            session.commit()
             return True
         return False
 

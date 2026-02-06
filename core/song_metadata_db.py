@@ -5,7 +5,7 @@
 """
 
 from datetime import datetime
-from sqlalchemy import select, or_
+from sqlalchemy import select, or_, and_
 from sqlalchemy.orm import Session
 from core.models import Song, ProcessedCollection
 from core.database import get_session
@@ -295,6 +295,98 @@ def list_all(
             for song in songs
         ]
         return results
+
+
+def list_artist_names(
+    keyword: str | None = None,
+    limit: int = 5000,
+    exclude_from_search: bool = True,
+) -> list[str]:
+    """
+    登録されているアーティスト名一覧を取得する
+
+    Args:
+        keyword: 部分一致フィルタ（任意）
+        limit: 取得件数上限
+        exclude_from_search: 検索除外フラグがTrueの曲を除外するか
+
+    Returns:
+        アーティスト名のリスト
+    """
+    with get_session() as session:
+        stmt = select(Song.artist_name).distinct()
+        stmt = stmt.where(and_(Song.artist_name.isnot(None), Song.artist_name != ""))
+        if exclude_from_search:
+            stmt = stmt.where(Song.excluded_from_search == False)
+        if keyword:
+            stmt = stmt.where(Song.artist_name.like(f"%{keyword}%"))
+        stmt = stmt.order_by(Song.artist_name).limit(limit)
+        return [row[0] for row in session.execute(stmt).all()]
+
+
+def list_source_dir_names(
+    keyword: str | None = None,
+    limit: int = 5000,
+    exclude_from_search: bool = True,
+) -> list[str]:
+    """
+    登録されているsource_dir一覧を取得する（data/を除去）
+
+    Args:
+        keyword: 部分一致フィルタ（任意）
+        limit: 取得件数上限
+        exclude_from_search: 検索除外フラグがTrueの曲を除外するか
+
+    Returns:
+        source_dir名（data/除去）のリスト
+    """
+    with get_session() as session:
+        stmt = select(Song.source_dir).distinct()
+        stmt = stmt.where(and_(Song.source_dir.isnot(None), Song.source_dir != ""))
+        if exclude_from_search:
+            stmt = stmt.where(Song.excluded_from_search == False)
+        if keyword:
+            stmt = stmt.where(Song.source_dir.like(f"%{keyword}%"))
+        stmt = stmt.order_by(Song.source_dir).limit(limit)
+        rows = [row[0] for row in session.execute(stmt).all()]
+
+    normalized = set()
+    for value in rows:
+        if value.startswith("data/"):
+            value = value.replace("data/", "", 1)
+        elif value.startswith("data\\"):
+            value = value.replace("data\\", "", 1)
+        if value:
+            normalized.add(value)
+    return sorted(normalized)
+
+
+def list_source_dirs_by_artists(
+    artist_names: list[str],
+    exclude_from_search: bool = True,
+) -> list[str]:
+    """
+    アーティスト名でsource_dir一覧を取得する
+
+    Args:
+        artist_names: アーティスト名のリスト
+        exclude_from_search: 検索除外フラグがTrueの曲を除外するか
+
+    Returns:
+        source_dirのリスト
+    """
+    if not artist_names:
+        return []
+
+    with get_session() as session:
+        stmt = (
+            select(Song.source_dir).distinct().where(Song.artist_name.in_(artist_names))
+        )
+        stmt = stmt.where(and_(Song.source_dir.isnot(None), Song.source_dir != ""))
+        if exclude_from_search:
+            stmt = stmt.where(Song.excluded_from_search == False)
+        stmt = stmt.order_by(Song.source_dir)
+        return [row[0] for row in session.execute(stmt).all()]
 
 
 # === ProcessedCollection 関連の関数 ===

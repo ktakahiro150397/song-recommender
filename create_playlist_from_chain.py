@@ -189,9 +189,11 @@ def chain_search_to_list(
 
             vector = current_song["embedding"]
             # 検索除外フラグが False (未設定を含む) の曲のみ検索
+            # フィルタがある場合はより多くの候補を取得（絞られる分を考慮）
+            n_candidates = max(100, len(visited) * 2 + 50)
             search_result = db.search_similar(
                 query_embedding=vector,
-                n_results=len(visited) + 10,
+                n_results=n_candidates,
                 where={"excluded_from_search": {"$ne": True}},
             )
 
@@ -200,10 +202,12 @@ def chain_search_to_list(
                 search_result["distances"][0],
                 search_result["metadatas"][0],
             ):
-                # アーティストフィルタが指定されている場合は、アーティスト名で絞り込み
+                # フィルタが指定されている場合は、source_dir で絞り込み
                 if artist_filter:
-                    artist_name = metadata.get("artist_name", "") if metadata else ""
-                    if artist_filter.lower() not in artist_name.lower():
+                    source_dir = metadata.get("source_dir", "") if metadata else ""
+                    # "data/" を除いた部分を取得して比較
+                    dir_name = source_dir.replace("data/", "").replace("data\\", "")
+                    if artist_filter.lower() not in dir_name.lower():
                         continue
 
                 if song_id not in visited and distance < best_distance:

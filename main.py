@@ -210,9 +210,10 @@ def chain_search(
 
             vector = current_song["embedding"]
 
-            # 十分な数の候補を取得（訪問済みを除外するため多めに）
+            # 十分な数の候補を取得（訪問済みと絞り込みを考慮して多めに）
+            n_candidates = max(100, len(visited) * 2 + 50)
             search_result = db.search_similar(
-                query_embedding=vector, n_results=len(visited) + 10
+                query_embedding=vector, n_results=n_candidates
             )
 
             # このDBで未訪問の最も近い曲を探す
@@ -221,10 +222,12 @@ def chain_search(
                 search_result["distances"][0],
                 search_result["metadatas"][0],
             ):
-                # アーティストフィルタが指定されている場合は、アーティスト名で絞り込み
+                # フィルタが指定されている場合は、source_dir で絞り込み
                 if artist_filter:
-                    artist_name = metadata.get("artist_name", "") if metadata else ""
-                    if artist_filter.lower() not in artist_name.lower():
+                    source_dir = metadata.get("source_dir", "") if metadata else ""
+                    # "data/" を除いた部分を取得して比較
+                    dir_name = source_dir.replace("data/", "").replace("data\\", "")
+                    if artist_filter.lower() not in dir_name.lower():
                         continue
 
                 if song_id not in visited and distance < best_distance:

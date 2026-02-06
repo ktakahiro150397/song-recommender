@@ -35,9 +35,9 @@ def find_song_by_keyword(db: SongVectorDB, keyword: str, limit: int = 10) -> lis
     Returns:
         マッチした曲IDのリスト
     """
-    # MySQLでキーワード検索
-    songs = song_metadata_db.search_by_keyword(keyword, limit=limit)
-    return [song.song_id for song in songs]
+    # MySQLでキーワード検索（セッション内で辞書化済み）
+    results = song_metadata_db.search_by_keyword(keyword, limit=limit)
+    return [song_id for song_id, _ in results]
 
 
 def select_song_interactive(db: SongVectorDB, keyword: str) -> str | None:

@@ -306,16 +306,31 @@ class SongVectorDB:
             sampled_indices = indices[:sample_size]
 
             # サンプリングされたデータを抽出
+            embeddings_data = all_songs.get("embeddings")
+            metadatas_data = all_songs.get("metadatas")
+
+            # embeddings と metadatas について、None でなく、要素を持つかチェック
+            has_embeddings = (
+                embeddings_data is not None
+                and hasattr(embeddings_data, "__len__")
+                and len(embeddings_data) > 0
+            )
+            has_metadatas = (
+                metadatas_data is not None
+                and hasattr(metadatas_data, "__len__")
+                and len(metadatas_data) > 0
+            )
+
             sampled_data = {
                 "ids": [all_songs["ids"][i] for i in sampled_indices],
                 "embeddings": (
                     [all_songs["embeddings"][i] for i in sampled_indices]
-                    if all_songs.get("embeddings")
+                    if has_embeddings
                     else []
                 ),
                 "metadatas": (
                     [all_songs["metadatas"][i] for i in sampled_indices]
-                    if all_songs.get("metadatas")
+                    if has_metadatas
                     else []
                 ),
             }

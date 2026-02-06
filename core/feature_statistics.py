@@ -36,7 +36,10 @@ class FeatureStatistics:
         Returns:
             統計情報の辞書（各特徴量の平均、標準偏差、最小値、最大値）
         """
-        if not embeddings:
+        # embeddings が None または空でないことを確認
+        if embeddings is None or (
+            hasattr(embeddings, "__len__") and len(embeddings) == 0
+        ):
             return {}
 
         # numpy配列に変換

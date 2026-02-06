@@ -37,9 +37,9 @@ def find_song_by_keyword(db: SongVectorDB, keyword: str, limit: int = 10) -> lis
     """
     キーワードで部分一致検索して曲を探す
     """
-    # db.search_by_keywordを使用（100k件まで対応）
-    result = db.search_by_keyword(keyword, limit=limit)
-    return result["ids"]
+    # MySQLでキーワード検索（セッション内で辞書化済み）
+    results = song_metadata_db.search_by_keyword(keyword, limit=limit)
+    return [song_id for song_id, _ in results]
 
 
 def select_song_interactive(db: SongVectorDB, keyword: str) -> str | None:
@@ -173,21 +173,21 @@ def chain_search_to_list(
     start_song = song_metadata_db.get_song(current_song_id)
     if start_song:
         start_metadata = {
-            "filename": start_song.filename,
-            "song_title": start_song.song_title,
-            "artist_name": start_song.artist_name,
-            "source_dir": start_song.source_dir,
-            "youtube_id": start_song.youtube_id,
-            "file_extension": start_song.file_extension,
-            "file_size_mb": start_song.file_size_mb,
-            "registered_at": start_song.registered_at.isoformat(),
-            "excluded_from_search": start_song.excluded_from_search,
+            "filename": start_song.get("filename", ""),
+            "song_title": start_song.get("song_title", ""),
+            "artist_name": start_song.get("artist_name", ""),
+            "source_dir": start_song.get("source_dir", ""),
+            "youtube_id": start_song.get("youtube_id", ""),
+            "file_extension": start_song.get("file_extension", ""),
+            "file_size_mb": start_song.get("file_size_mb", 0.0),
+            "registered_at": start_song.get("registered_at", ""),
+            "excluded_from_search": start_song.get("excluded_from_search", False),
         }
-        source_dir = start_song.source_dir
+        source_dir = start_song.get("source_dir", "unknown")
     else:
         start_metadata = {}
         source_dir = "unknown"
-    
+
     print(
         f"\n{Fore.CYAN}Start | {source_dir:<15s} | {current_song_id}{Style.RESET_ALL}"
     )
@@ -217,13 +217,13 @@ def chain_search_to_list(
             # 検索結果のIDリストを取得
             candidate_ids = search_result["ids"][0]
             candidate_distances = search_result["distances"][0]
-            
+
             # MySQLからメタデータを一括取得
             metadata_dict = song_metadata_db.get_songs_as_dict(candidate_ids)
 
             for song_id, distance in zip(candidate_ids, candidate_distances):
                 metadata = metadata_dict.get(song_id, {})
-                
+
                 # フィルタが指定されている場合は、source_dir で絞り込み
                 if artist_filter:
                     source_dir = metadata.get("source_dir", "")

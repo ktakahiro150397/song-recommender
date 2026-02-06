@@ -663,7 +663,10 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
                                 description_lines = [
                                     f"曲調おすすめプレイリスト検索結果 ({len(video_ids)}曲)"
                                 ]
-                                if playlist_header_comment and playlist_header_comment.strip():
+                                if (
+                                    playlist_header_comment
+                                    and playlist_header_comment.strip()
+                                ):
                                     description_lines.extend(
                                         [
                                             "",

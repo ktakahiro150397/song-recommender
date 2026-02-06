@@ -232,6 +232,9 @@ class UserIdentity(Base):
     email: Mapped[str] = mapped_column(
         String(320), nullable=False, default="", server_default=""
     )
+    alias: Mapped[str] = mapped_column(
+        String(100), nullable=False, default="", server_default=""
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=datetime.now
     )
@@ -243,4 +246,4 @@ class UserIdentity(Base):
     )
 
     def __repr__(self) -> str:
-        return f"<UserIdentity(user_sub='{self.user_sub}', email='{self.email}')>"
+        return f"<UserIdentity(user_sub='{self.user_sub}', email='{self.email}', alias='{self.alias}')>"

@@ -205,6 +205,7 @@ def delete_playlist_comment(
             return False
 
         comment.is_deleted = True
+        # get_session() コンテキストマネージャが自動的にコミットします
 
     return True
 

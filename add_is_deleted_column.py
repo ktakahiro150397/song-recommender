@@ -27,6 +27,7 @@ def add_is_deleted_column():
                 ADD COLUMN is_deleted BOOLEAN NOT NULL DEFAULT 0
             """)
             session.execute(alter_query)
+            # get_session() コンテキストマネージャが自動的にコミットします
             print("✅ is_deleted列を追加しました")
         else:
             print("ℹ️  is_deleted列は既に存在します")

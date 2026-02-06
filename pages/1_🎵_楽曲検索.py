@@ -105,36 +105,44 @@ def find_song_by_keyword_with_metadata(
     """
     if keyword:
         # MySQLでキーワード検索
-        songs = song_metadata_db.search_by_keyword(keyword, limit=limit, exclude_from_search=True)
+        songs = song_metadata_db.search_by_keyword(
+            keyword, limit=limit, exclude_from_search=True
+        )
         matches = [
-            (song.song_id, {
-                "filename": song.filename,
-                "song_title": song.song_title,
-                "artist_name": song.artist_name,
-                "source_dir": song.source_dir,
-                "youtube_id": song.youtube_id,
-                "file_extension": song.file_extension,
-                "file_size_mb": song.file_size_mb,
-                "registered_at": song.registered_at.isoformat(),
-                "excluded_from_search": song.excluded_from_search,
-            })
+            (
+                song.song_id,
+                {
+                    "filename": song.filename,
+                    "song_title": song.song_title,
+                    "artist_name": song.artist_name,
+                    "source_dir": song.source_dir,
+                    "youtube_id": song.youtube_id,
+                    "file_extension": song.file_extension,
+                    "file_size_mb": song.file_size_mb,
+                    "registered_at": song.registered_at.isoformat(),
+                    "excluded_from_search": song.excluded_from_search,
+                },
+            )
             for song in songs
         ]
     else:
         # 全曲取得
         songs = song_metadata_db.list_all(limit=limit, exclude_from_search=True)
         matches = [
-            (song.song_id, {
-                "filename": song.filename,
-                "song_title": song.song_title,
-                "artist_name": song.artist_name,
-                "source_dir": song.source_dir,
-                "youtube_id": song.youtube_id,
-                "file_extension": song.file_extension,
-                "file_size_mb": song.file_size_mb,
-                "registered_at": song.registered_at.isoformat(),
-                "excluded_from_search": song.excluded_from_search,
-            })
+            (
+                song.song_id,
+                {
+                    "filename": song.filename,
+                    "song_title": song.song_title,
+                    "artist_name": song.artist_name,
+                    "source_dir": song.source_dir,
+                    "youtube_id": song.youtube_id,
+                    "file_extension": song.file_extension,
+                    "file_size_mb": song.file_size_mb,
+                    "registered_at": song.registered_at.isoformat(),
+                    "excluded_from_search": song.excluded_from_search,
+                },
+            )
             for song in songs
         ]
 
@@ -157,23 +165,31 @@ def get_recently_added_songs(
     from sqlalchemy import select
     from core.models import Song
     from core.database import get_session
-    
+
     with get_session() as session:
-        stmt = select(Song).where(Song.excluded_from_search == False).order_by(Song.registered_at.desc()).limit(limit)
+        stmt = (
+            select(Song)
+            .where(Song.excluded_from_search == False)
+            .order_by(Song.registered_at.desc())
+            .limit(limit)
+        )
         songs = list(session.execute(stmt).scalars().all())
-    
+
     return [
-        (song.song_id, {
-            "filename": song.filename,
-            "song_title": song.song_title,
-            "artist_name": song.artist_name,
-            "source_dir": song.source_dir,
-            "youtube_id": song.youtube_id,
-            "file_extension": song.file_extension,
-            "file_size_mb": song.file_size_mb,
-            "registered_at": song.registered_at.isoformat(),
-            "excluded_from_search": song.excluded_from_search,
-        })
+        (
+            song.song_id,
+            {
+                "filename": song.filename,
+                "song_title": song.song_title,
+                "artist_name": song.artist_name,
+                "source_dir": song.source_dir,
+                "youtube_id": song.youtube_id,
+                "file_extension": song.file_extension,
+                "file_size_mb": song.file_size_mb,
+                "registered_at": song.registered_at.isoformat(),
+                "excluded_from_search": song.excluded_from_search,
+            },
+        )
         for song in songs
     ]
 
@@ -192,27 +208,35 @@ def get_random_songs(db: SongVectorDB, limit: int = 50) -> list[tuple[str, dict]
     from sqlalchemy import select, func
     from core.models import Song
     from core.database import get_session
-    
+
     with get_session() as session:
-        stmt = select(Song).where(Song.excluded_from_search == False).order_by(func.rand()).limit(limit)
+        stmt = (
+            select(Song)
+            .where(Song.excluded_from_search == False)
+            .order_by(func.rand())
+            .limit(limit)
+        )
         songs = list(session.execute(stmt).scalars().all())
-        
+
         # セッション内で属性にアクセスしてディクショナリを構築
         result = [
-            (song.song_id, {
-                "filename": song.filename,
-                "song_title": song.song_title,
-                "artist_name": song.artist_name,
-                "source_dir": song.source_dir,
-                "youtube_id": song.youtube_id,
-                "file_extension": song.file_extension,
-                "file_size_mb": song.file_size_mb,
-                "registered_at": song.registered_at.isoformat(),
-                "excluded_from_search": song.excluded_from_search,
-            })
+            (
+                song.song_id,
+                {
+                    "filename": song.filename,
+                    "song_title": song.song_title,
+                    "artist_name": song.artist_name,
+                    "source_dir": song.source_dir,
+                    "youtube_id": song.youtube_id,
+                    "file_extension": song.file_extension,
+                    "file_size_mb": song.file_size_mb,
+                    "registered_at": song.registered_at.isoformat(),
+                    "excluded_from_search": song.excluded_from_search,
+                },
+            )
             for song in songs
         ]
-        
+
     return result
 
 
@@ -437,18 +461,20 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
                             if song_id != selected_song:
                                 filtered_ids.append(song_id)
                                 filtered_distances.append(distance)
-                        
+
                         # 上位n_results件のみ取得
                         filtered_ids = filtered_ids[:n_results]
                         filtered_distances = filtered_distances[:n_results]
-                        
+
                         # MySQLからメタデータを一括取得
                         metadata_dict = song_metadata_db.get_songs_as_dict(filtered_ids)
-                        
+
                         # (song_id, distance, metadata) のタプルリストを作成
                         filtered = [
                             (song_id, distance, metadata_dict.get(song_id, {}))
-                            for song_id, distance in zip(filtered_ids, filtered_distances)
+                            for song_id, distance in zip(
+                                filtered_ids, filtered_distances
+                            )
                         ]
                         all_results[db_name] = filtered
                     else:

@@ -37,7 +37,9 @@ class FeatureStatistics:
             統計情報の辞書（各特徴量の平均、標準偏差、最小値、最大値）
         """
         # embeddings が None または空でないことを確認
-        if embeddings is None or (hasattr(embeddings, "__len__") and len(embeddings) == 0):
+        if embeddings is None or (
+            hasattr(embeddings, "__len__") and len(embeddings) == 0
+        ):
             return {}
 
         # numpy配列に変換

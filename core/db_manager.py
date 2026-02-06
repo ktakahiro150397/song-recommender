@@ -308,7 +308,7 @@ class SongVectorDB:
             # サンプリングされたデータを抽出
             embeddings_data = all_songs.get("embeddings")
             metadatas_data = all_songs.get("metadatas")
-            
+
             # embeddings と metadatas について、None でなく、要素を持つかチェック
             has_embeddings = (
                 embeddings_data is not None
@@ -320,7 +320,7 @@ class SongVectorDB:
                 and hasattr(metadatas_data, "__len__")
                 and len(metadatas_data) > 0
             )
-            
+
             sampled_data = {
                 "ids": [all_songs["ids"][i] for i in sampled_indices],
                 "embeddings": (

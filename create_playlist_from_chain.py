@@ -129,11 +129,37 @@ def get_distance_color(distance: float) -> str:
 # ========== 連鎖検索 ==========
 
 
+def _normalize_source_dir_filters(
+    source_dir_filter: str | list[str] | None,
+) -> list[str]:
+    if not source_dir_filter:
+        return []
+    if isinstance(source_dir_filter, list):
+        return [name.strip() for name in source_dir_filter if name.strip()]
+    if "," in source_dir_filter:
+        return [name.strip() for name in source_dir_filter.split(",") if name.strip()]
+    return [source_dir_filter.strip()]
+
+
+def _build_source_dir_candidates(source_dir_names: list[str]) -> list[str]:
+    candidates: set[str] = set()
+    for name in source_dir_names:
+        if not name:
+            continue
+        if name.startswith("data/") or name.startswith("data\\"):
+            candidates.add(name)
+        else:
+            candidates.add(name)
+            candidates.add(f"data/{name}")
+            candidates.add(f"data\\{name}")
+    return list(candidates)
+
+
 def chain_search_to_list(
     start_filename: str,
     dbs: list[SongVectorDB],
     n_songs: int = 30,
-    artist_filter: str | None = None,
+    artist_filter: str | list[str] | None = None,
 ) -> list[tuple[str, float, dict]]:
     """
     1曲から始めて類似曲を連鎖的に辿り、結果をリストで返す
@@ -142,7 +168,7 @@ def chain_search_to_list(
         start_filename: 開始曲のファイル名
         dbs: 使用するベクトルDBのリスト
         n_songs: 取得する曲数
-        artist_filter: アーティスト名でフィルタリング（部分一致）
+        artist_filter: source_dirでフィルタリング（複数可）
 
     Returns:
         [(song_id, distance, metadata), ...] のリスト（開始曲を含む）
@@ -151,15 +177,13 @@ def chain_search_to_list(
     results: list[tuple[str, float]] = []
     current_song_id = start_filename
 
-    # アーティストフィルタが指定されている場合、source_dir フィルタを構築
+    # source_dirフィルタが指定されている場合、whereフィルタを構築
     where_filter: dict | None = None
-    if artist_filter:
-        matching_songs = song_metadata_db.search_by_keyword(artist_filter, limit=10000)
-        matched_dirs = list(
-            set(metadata.get("source_dir", "") for _, metadata in matching_songs)
-        )
+    source_dir_filters = _normalize_source_dir_filters(artist_filter)
+    if source_dir_filters:
+        matched_dirs = _build_source_dir_candidates(source_dir_filters)
         if not matched_dirs:
-            print(f"❌ '{artist_filter}' に一致するディレクトリが見つかりません。")
+            print("❌ 指定した登録元に一致するディレクトリが見つかりません。")
             return []
         # $in で複数のsource_dirをOR検索
         where_filter = {"source_dir": {"$in": matched_dirs}}
@@ -167,8 +191,8 @@ def chain_search_to_list(
     print(f"\n{'='*60}")
     print(f"🔗 連鎖検索開始: {start_filename}")
     print(f"   取得曲数: {n_songs}, DB数: {len(dbs)}")
-    if artist_filter:
-        print(f"   アーティストフィルタ: {artist_filter}")
+    if source_dir_filters:
+        print(f"   登録元フィルタ: {', '.join(source_dir_filters)}")
         print(f"   対象ディレクトリ: {len(matched_dirs)}個")
     print(f"{'='*60}")
 
@@ -182,14 +206,6 @@ def chain_search_to_list(
     if exist_song is None:
         print(f"❌ 開始曲 {current_song_id} がDBに見つかりません。")
         return []
-
-    # フィルタが指定されている場合、開始曲がフィルタに含まれるか確認
-    if where_filter:
-        start_song_db = exist_song.get("metadata", {})
-        start_source_dir = start_song_db.get("source_dir", "")
-        if start_source_dir not in matched_dirs:
-            print(f"❌ 開始曲 {current_song_id} はフィルタ条件に含まれません。")
-            return []
 
     # 開始曲のメタデータをMySQLから取得
     start_song = song_metadata_db.get_song(current_song_id)

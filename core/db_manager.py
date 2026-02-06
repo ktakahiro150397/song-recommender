@@ -97,10 +97,10 @@ class SongVectorDB:
         if not song_ids:
             return
 
-        if excluded_flags is None:
-            excluded_flags = [False] * len(song_ids)
-
-        metadatas = [{"excluded_from_search": flag} for flag in excluded_flags]
+        metadatas = [
+            {"excluded_from_search": flag}
+            for flag in (excluded_flags or [False] * len(song_ids))
+        ]
 
         self.collection.add(
             ids=song_ids,

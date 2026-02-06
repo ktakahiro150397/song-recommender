@@ -182,11 +182,13 @@ def count_songs(exclude_from_search: bool = False) -> int:
     Returns:
         楽曲数
     """
+    from sqlalchemy import func
+    
     with get_session() as session:
-        stmt = select(Song)
+        stmt = select(func.count()).select_from(Song)
         if exclude_from_search:
             stmt = stmt.where(Song.excluded_from_search == False)
-        return session.execute(stmt).count()
+        return session.scalar(stmt) or 0
 
 
 def list_all(limit: int = 100, exclude_from_search: bool = False) -> list[Song]:

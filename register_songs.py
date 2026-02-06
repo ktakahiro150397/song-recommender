@@ -586,35 +586,41 @@ def add_songs_batch(
     song_ids = [data[0] for data in song_data_list]
     embeddings = [data[1] for data in song_data_list]
 
-    # MySQLにメタデータを一括登録
+    # MySQLにメタデータを一括登録（bulk_save_objects使用）
     from core.database import get_session
-    from core.models import Song
+    from core.models import Song, ProcessedCollection
+    
+    songs = []
+    processed_records = []
+    collection_name = db.collection.name
+    
+    for data in song_data_list:
+        song_id, _, song_title, artist_name, youtube_id, file_extension, file_size_mb = data
+        songs.append(Song(
+            song_id=song_id,
+            filename=song_id,
+            song_title=song_title,
+            artist_name=artist_name,
+            source_dir=normalized_dir,
+            youtube_id=youtube_id,
+            file_extension=file_extension,
+            file_size_mb=file_size_mb,
+            registered_at=datetime.now(),
+            excluded_from_search=False,
+        ))
+        processed_records.append(ProcessedCollection(
+            song_id=song_id,
+            collection_name=collection_name,
+            processed_at=datetime.now(),
+        ))
     
     with get_session() as session:
-        for data in song_data_list:
-            song_id, _, song_title, artist_name, youtube_id, file_extension, file_size_mb = data
-            song = Song(
-                song_id=song_id,
-                filename=song_id,
-                song_title=song_title,
-                artist_name=artist_name,
-                source_dir=normalized_dir,
-                youtube_id=youtube_id,
-                file_extension=file_extension,
-                file_size_mb=file_size_mb,
-                registered_at=datetime.now(),
-                excluded_from_search=False,
-            )
-            session.add(song)
+        session.bulk_save_objects(songs)
+        session.bulk_save_objects(processed_records)
 
     # ChromaDBには最小限のデータのみ保存
     excluded_flags = [False] * len(song_ids)
     db.add_songs(song_ids, embeddings, excluded_flags)
-
-    # 処理済みコレクションとしてマーク
-    collection_name = db.collection.name
-    for song_id in song_ids:
-        song_metadata_db.mark_as_processed(song_id=song_id, collection_name=collection_name)
 
     return len(song_data_list)
 
@@ -763,7 +769,7 @@ def main():
                         # 各DBに対してバッチ登録
                         for db, extractor, mode in dbs_and_extractors:
                             batch_data = []
-                            current_normalized_dir = None
+                            current_normalized_dir = ""  # デフォルト値を設定
                             for file_path, filename, normalized_dir in files_to_process:
                                 current_normalized_dir = normalized_dir
                                 song_data = prepare_song_data(
@@ -772,7 +778,7 @@ def main():
                                 if song_data:
                                     batch_data.append(song_data)
 
-                            if batch_data:
+                            if batch_data and current_normalized_dir:
                                 try:
                                     added_count = add_songs_batch(db, batch_data, current_normalized_dir)
                                     if (

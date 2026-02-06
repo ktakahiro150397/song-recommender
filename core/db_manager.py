@@ -63,27 +63,28 @@ class SongVectorDB:
         )
 
     def add_song(
-        self, song_id: str, embedding: list[float], metadata: dict | None = None
+        self, song_id: str, embedding: list[float], excluded_from_search: bool = False
     ) -> None:
         """
-        楽曲をDBに登録する
+        楽曲をDBに登録する（ベクトルと最小限のメタデータのみ）
 
         Args:
             song_id: 楽曲の一意なID
             embedding: 音声特徴量ベクトル
-            metadata: 付加情報（タイトル、パスなど）
+            excluded_from_search: 検索除外フラグ（デフォルト: False）
         """
+        metadata = {"excluded_from_search": excluded_from_search}
         self.collection.add(
             ids=[song_id],
             embeddings=[embedding],
-            metadatas=[metadata] if metadata else None,
+            metadatas=[metadata],
         )
 
     def add_songs(
         self,
         song_ids: list[str],
         embeddings: list[list[float]],
-        metadatas: list[dict] | None = None,
+        excluded_flags: list[bool] | None = None,
     ) -> None:
         """
         複数の楽曲を一括でDBに登録する（バルクインサート）
@@ -91,15 +92,20 @@ class SongVectorDB:
         Args:
             song_ids: 楽曲IDのリスト
             embeddings: 音声特徴量ベクトルのリスト
-            metadatas: 付加情報のリスト（オプション）
+            excluded_flags: 検索除外フラグのリスト（オプション、デフォルトはすべてFalse）
         """
         if not song_ids:
             return
 
+        if excluded_flags is None:
+            excluded_flags = [False] * len(song_ids)
+
+        metadatas = [{"excluded_from_search": flag} for flag in excluded_flags]
+
         self.collection.add(
             ids=song_ids,
             embeddings=embeddings,
-            metadatas=metadatas if metadatas else None,
+            metadatas=metadatas,
         )
 
     def get_songs(self, song_ids: list[str], include_embedding: bool = False) -> dict:
@@ -207,31 +213,6 @@ class SongVectorDB:
         """登録されている楽曲数を返す"""
         return self.collection.count()
 
-    def get_by_youtube_id(self, youtube_id: str) -> dict | None:
-        """
-        YouTube動画IDで楽曲を検索する
-
-        Args:
-            youtube_id: YouTube動画ID（11文字）
-
-        Returns:
-            楽曲情報（見つからない場合はNone）
-        """
-        try:
-            result = self.collection.get(
-                where={"youtube_id": youtube_id}, include=["metadatas"]
-            )
-            if result["ids"] and len(result["ids"]) > 0:
-                return {
-                    "id": result["ids"][0],
-                    "metadata": result["metadatas"][0] if result["metadatas"] else None,
-                }
-            return None
-        except Exception as e:
-            # エラー時はNoneを返す（未登録扱い）
-            print(f"Warning: Failed to search by youtube_id '{youtube_id}': {e}")
-            return None
-
     def list_all(self, limit: int = 100, where: dict | None = None) -> dict:
         """
         登録されている楽曲一覧を取得する
@@ -241,77 +222,23 @@ class SongVectorDB:
             where: メタデータフィルタ（例: {"excluded_from_search": {"$ne": True}}）
 
         Returns:
-            楽曲一覧
+            楽曲一覧（IDとexcluded_from_searchフラグのみ）
         """
         return self.collection.get(limit=limit, where=where)
 
-    def search_by_keyword(
-        self, keyword: str, limit: int = 10000, where: dict | None = None
-    ) -> dict:
+    def update_excluded_from_search(self, song_id: str, excluded: bool) -> None:
         """
-        メタデータの複数フィールドでテキスト部分一致検索を行う
-        100k件まで取得してPython側で絞込み（メモリ効率とのバランス）
-
-        Args:
-            keyword: 検索キーワード
-            limit: 最大表示件数（デフォルト: 10000）
-            where: 追加のメタデータフィルタ（オプション）
-
-        Returns:
-            マッチした楽曲一覧（limit 件以下）
-        """
-        # DB側で 100k 件まで取得（メモリ効率のため上限設定）
-        fetch_limit = 100000
-        all_songs = self.list_all(limit=fetch_limit, where=where)
-
-        if not all_songs.get("ids"):
-            return {"ids": [], "metadatas": []}
-
-        matches = {"ids": [], "metadatas": []}
-        keyword_lower = keyword.lower()
-
-        for idx, song_id in enumerate(all_songs["ids"]):
-            metadata = all_songs["metadatas"][idx] if all_songs["metadatas"] else {}
-            source_dir = metadata.get("source_dir", "").lower()
-            song_title = metadata.get("song_title", "").lower()
-
-            # キーワードで部分一致検索
-            if (
-                keyword_lower in song_id.lower()
-                or keyword_lower in source_dir
-                or keyword_lower in song_title
-            ):
-                matches["ids"].append(song_id)
-                matches["metadatas"].append(metadata)
-
-                if len(matches["ids"]) >= limit:
-                    break
-
-        return matches
-
-    def update_metadata(self, song_id: str, metadata: dict) -> None:
-        """
-        楽曲のメタデータを更新する
-
-        注意: このメソッドはメタデータを完全に置き換えます（マージではありません）
-        既存のメタデータを保持したい場合は、先にget_song()で取得してから
-        更新したいフィールドのみ変更してください。
-
-        曲が存在しない場合でもエラーは発生せず、静かに失敗します。
-        確実に更新したい場合は、事前にget_song()で存在確認してください。
+        楽曲の検索除外フラグを更新する
 
         Args:
             song_id: 楽曲ID
-            metadata: 更新するメタデータ（既存のメタデータを完全に置き換えます）
+            excluded: 検索除外フラグ
 
         Example:
-            # 既存のメタデータを保持しながら更新
-            song_data = db.get_song(song_id, include_embedding=False)
-            if song_data and song_data.get("metadata"):
-                metadata = song_data["metadata"]
-                metadata["excluded_from_search"] = True
-                db.update_metadata(song_id, metadata)
+            db.update_excluded_from_search(song_id, True)  # 検索から除外
+            db.update_excluded_from_search(song_id, False)  # 検索対象に含める
         """
+        metadata = {"excluded_from_search": excluded}
         self.collection.update(ids=[song_id], metadatas=[metadata])
 
     def get_random_sample(self, sample_percentage: float = 0.05) -> dict:

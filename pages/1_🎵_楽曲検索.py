@@ -11,6 +11,7 @@ import re
 import random
 
 from core.db_manager import SongVectorDB
+from core import song_metadata_db
 from create_playlist_from_chain import (
     chain_search_to_list,
     filename_to_query,
@@ -103,19 +104,13 @@ def find_song_by_keyword_with_metadata(
         (song_id, metadata)のタプルのリスト
     """
     if keyword:
-        # キーワード検索時はDB側で limit を適用
-        result = db.search_by_keyword(keyword, limit=limit)
-        matches = [
-            (song_id, result["metadatas"][idx])
-            for idx, song_id in enumerate(result["ids"])
-        ]
+        # MySQLでキーワード検索（セッション内で辞書化済み）
+        matches = song_metadata_db.search_by_keyword(
+            keyword, limit=limit, exclude_from_search=True
+        )
     else:
-        # キーワードなし（全件表示）時は DB から limit 件取得
-        all_songs = db.list_all(limit=limit)
-        matches = [
-            (song_id, all_songs["metadatas"][idx])
-            for idx, song_id in enumerate(all_songs["ids"])
-        ]
+        # 全曲取得（セッション内で辞書化済み）
+        matches = song_metadata_db.list_all(limit=limit, exclude_from_search=True)
 
     return matches
 
@@ -132,24 +127,37 @@ def get_recently_added_songs(
     Returns:
         (song_id, metadata)のタプルのリスト（新しい順）
     """
-    # 全曲取得（100k件まで対応）
-    all_songs = db.list_all(limit=100000)
+    # MySQLから最近追加された曲を取得（ORDER BY registered_at DESC）
+    from sqlalchemy import select
+    from core.models import Song
+    from core.database import get_session
 
-    # メタデータと曲IDをペアにしてリスト化
-    song_list = []
-    for idx, song_id in enumerate(all_songs["ids"]):
-        metadata = all_songs["metadatas"][idx] if all_songs["metadatas"] else {}
-        song_list.append((song_id, metadata))
+    with get_session() as session:
+        stmt = (
+            select(Song)
+            .where(Song.excluded_from_search == False)
+            .order_by(Song.registered_at.desc())
+            .limit(limit)
+        )
+        songs = list(session.execute(stmt).scalars().all())
 
-    # registered_atでソート（新しい順）
-    # registered_atが存在しない場合は古い扱いとする
-    sorted_songs = sorted(
-        song_list,
-        key=lambda x: x[1].get("registered_at", "1900-01-01T00:00:00"),
-        reverse=True,  # 新しい順
-    )
-
-    return sorted_songs[:limit]
+    return [
+        (
+            song.song_id,
+            {
+                "filename": song.filename,
+                "song_title": song.song_title,
+                "artist_name": song.artist_name,
+                "source_dir": song.source_dir,
+                "youtube_id": song.youtube_id,
+                "file_extension": song.file_extension,
+                "file_size_mb": song.file_size_mb,
+                "registered_at": song.registered_at.isoformat(),
+                "excluded_from_search": song.excluded_from_search,
+            },
+        )
+        for song in songs
+    ]
 
 
 def get_random_songs(db: SongVectorDB, limit: int = 50) -> list[tuple[str, dict]]:
@@ -162,19 +170,40 @@ def get_random_songs(db: SongVectorDB, limit: int = 50) -> list[tuple[str, dict]
     Returns:
         (song_id, metadata)のタプルのリスト（ランダム順）
     """
-    # 全曲取得（100k件まで対応）
-    all_songs = db.list_all(limit=100000)
+    # MySQLからランダムに曲を取得（ORDER BY RAND()）
+    from sqlalchemy import select, func
+    from core.models import Song
+    from core.database import get_session
 
-    # メタデータと曲IDをペアにしてリスト化
-    song_list = []
-    for idx, song_id in enumerate(all_songs["ids"]):
-        metadata = all_songs["metadatas"][idx] if all_songs["metadatas"] else {}
-        song_list.append((song_id, metadata))
+    with get_session() as session:
+        stmt = (
+            select(Song)
+            .where(Song.excluded_from_search == False)
+            .order_by(func.rand())
+            .limit(limit)
+        )
+        songs = list(session.execute(stmt).scalars().all())
 
-    # ランダムにサンプリング
-    # 曲数がlimitより少ない場合は全曲を返す
-    sample_size = min(limit, len(song_list))
-    return random.sample(song_list, sample_size)
+        # セッション内で属性にアクセスしてディクショナリを構築
+        result = [
+            (
+                song.song_id,
+                {
+                    "filename": song.filename,
+                    "song_title": song.song_title,
+                    "artist_name": song.artist_name,
+                    "source_dir": song.source_dir,
+                    "youtube_id": song.youtube_id,
+                    "file_extension": song.file_extension,
+                    "file_size_mb": song.file_size_mb,
+                    "registered_at": song.registered_at.isoformat(),
+                    "excluded_from_search": song.excluded_from_search,
+                },
+            )
+            for song in songs
+        ]
+
+    return result
 
 
 # ========== メイン画面 ==========
@@ -388,16 +417,32 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
                             n_results=n_results + 10,  # 除外分を考慮して多めに取得
                             where={"excluded_from_search": {"$ne": True}},
                         )
-                        # 自分自身を除外
-                        filtered = []
-                        for song_id, distance, metadata in zip(
+                        # 自分自身を除外してIDと距離を抽出
+                        filtered_ids = []
+                        filtered_distances = []
+                        for song_id, distance in zip(
                             similar["ids"][0],
                             similar["distances"][0],
-                            similar["metadatas"][0],
                         ):
                             if song_id != selected_song:
-                                filtered.append((song_id, distance, metadata))
-                        all_results[db_name] = filtered[:n_results]
+                                filtered_ids.append(song_id)
+                                filtered_distances.append(distance)
+
+                        # 上位n_results件のみ取得
+                        filtered_ids = filtered_ids[:n_results]
+                        filtered_distances = filtered_distances[:n_results]
+
+                        # MySQLからメタデータを一括取得
+                        metadata_dict = song_metadata_db.get_songs_as_dict(filtered_ids)
+
+                        # (song_id, distance, metadata) のタプルリストを作成
+                        filtered = [
+                            (song_id, distance, metadata_dict.get(song_id, {}))
+                            for song_id, distance in zip(
+                                filtered_ids, filtered_distances
+                            )
+                        ]
+                        all_results[db_name] = filtered
                     else:
                         all_results[db_name] = []
 
@@ -512,11 +557,10 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
 
         # 選択中の曲のディレクトリを入力するボタン
         if st.button("📎 選択中の曲のディレクトリを入力", type="secondary"):
-            # DBから選択中の曲の情報を取得
-            song_data = db.get_song(selected_song)
-            if song_data:
-                metadata = song_data.get("metadata", {})
-                source_dir = metadata.get("source_dir", "")
+            # MySQLから選択中の曲の情報を取得
+            song = song_metadata_db.get_song(selected_song)
+            if song:
+                source_dir = song.get("source_dir", "")
                 if source_dir:
                     # "data/" を除いた部分を取得
                     dir_name = source_dir.replace("data/", "").replace("data\\", "")

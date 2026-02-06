@@ -14,6 +14,7 @@ from colorama import Fore, Style, init
 
 from core.db_manager import SongVectorDB
 from core.ytmusic_manager import YTMusicManager
+from core import song_metadata_db
 
 # Windows用初期化
 init()
@@ -36,9 +37,9 @@ def find_song_by_keyword(db: SongVectorDB, keyword: str, limit: int = 10) -> lis
     """
     キーワードで部分一致検索して曲を探す
     """
-    # db.search_by_keywordを使用（100k件まで対応）
-    result = db.search_by_keyword(keyword, limit=limit)
-    return result["ids"]
+    # MySQLでキーワード検索（セッション内で辞書化済み）
+    results = song_metadata_db.search_by_keyword(keyword, limit=limit)
+    return [song_id for song_id, _ in results]
 
 
 def select_song_interactive(db: SongVectorDB, keyword: str) -> str | None:
@@ -168,9 +169,25 @@ def chain_search_to_list(
         print(f"❌ 開始曲 {current_song_id} がDBに見つかりません。")
         return []
 
-    # 開始曲を追加
-    start_metadata = exist_song.get("metadata", {}) or {}
-    source_dir = start_metadata.get("source_dir", "unknown")
+    # 開始曲のメタデータをMySQLから取得
+    start_song = song_metadata_db.get_song(current_song_id)
+    if start_song:
+        start_metadata = {
+            "filename": start_song.get("filename", ""),
+            "song_title": start_song.get("song_title", ""),
+            "artist_name": start_song.get("artist_name", ""),
+            "source_dir": start_song.get("source_dir", ""),
+            "youtube_id": start_song.get("youtube_id", ""),
+            "file_extension": start_song.get("file_extension", ""),
+            "file_size_mb": start_song.get("file_size_mb", 0.0),
+            "registered_at": start_song.get("registered_at", ""),
+            "excluded_from_search": start_song.get("excluded_from_search", False),
+        }
+        source_dir = start_song.get("source_dir", "unknown")
+    else:
+        start_metadata = {}
+        source_dir = "unknown"
+
     print(
         f"\n{Fore.CYAN}Start | {source_dir:<15s} | {current_song_id}{Style.RESET_ALL}"
     )
@@ -189,22 +206,27 @@ def chain_search_to_list(
 
             vector = current_song["embedding"]
             # 検索除外フラグが False (未設定を含む) の曲のみ検索
-            # フィルタがある場合はより多くの候補を取得（絞られる分を考慮）
-            n_candidates = max(100, len(visited) * 2 + 50)
+            # パフォーマンス最適化: 候補数を50に固定（複数DBがあるため十分）
+            n_candidates = 50
             search_result = db.search_similar(
                 query_embedding=vector,
                 n_results=n_candidates,
                 where={"excluded_from_search": {"$ne": True}},
             )
 
-            for song_id, distance, metadata in zip(
-                search_result["ids"][0],
-                search_result["distances"][0],
-                search_result["metadatas"][0],
-            ):
+            # 検索結果のIDリストを取得
+            candidate_ids = search_result["ids"][0]
+            candidate_distances = search_result["distances"][0]
+
+            # MySQLからメタデータを一括取得
+            metadata_dict = song_metadata_db.get_songs_as_dict(candidate_ids)
+
+            for song_id, distance in zip(candidate_ids, candidate_distances):
+                metadata = metadata_dict.get(song_id, {})
+
                 # フィルタが指定されている場合は、source_dir で絞り込み
                 if artist_filter:
-                    source_dir = metadata.get("source_dir", "") if metadata else ""
+                    source_dir = metadata.get("source_dir", "")
                     # "data/" を除いた部分を取得して比較
                     dir_name = source_dir.replace("data/", "").replace("data\\", "")
                     if artist_filter.lower() not in dir_name.lower():

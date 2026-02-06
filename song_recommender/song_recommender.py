@@ -2,69 +2,50 @@
 
 import reflex as rx
 
-from rxconfig import config
-from song_recommender.components.reusable_counter import ReusableCounter
 from song_recommender.pages.search_songs import search_songs
-
-
-class State(rx.State):
-    """The app state."""
-
-    count: int = 0
-
-    @rx.event
-    def increment(self):
-        """An event to increment the count."""
-        self.count += 1
-
-
-def counter() -> rx.Component:
-    return rx.container(
-        rx.color_mode.button(position="top-right"),
-        rx.vstack(
-            rx.heading(f"Count: {State.count}"),
-            rx.button("increment", on_click=State.increment),
-            rx.text("Click the button to increment the count."),
-        ),
-        spacing="5",
-        justify="center",
-        min_height="85vh",
-    )
-
-
-reusable_counter = ReusableCounter.create()
-
-
-def index() -> rx.Component:
-    # Welcome Page (Index)
-    return rx.container(
-        rx.color_mode.button(position="top-right"),
-        rx.vstack(
-            rx.heading("🎵 楽曲レコメンドシステム", size="9"),
-            # rx.text(
-            #     "Get started by editing ",
-            #     rx.code(f"{config.app_name}/{config.app_name}.py"),
-            #     size="5",
-            # ),
-            # rx.link(
-            #     rx.button("Check out our docs!"),
-            #     href="https://reflex.dev/docs/getting-started/introduction/",
-            #     is_external=True,
-            # ),
-            rx.heading("楽曲検索・プレイリスト作成"),
-            rx.text("楽曲検索を行い、プレイリストの作成を行います。"),
-            rx.link(
-                rx.text("楽曲検索画面へ"),
-                href="/search-songs",
-                is_external=False,
-            ),
-            spacing="5",
-            justify="center",
-            min_height="85vh",
-        ),
-    )
-
+from song_recommender.pages.top_page import top_page
+from song_recommender.pages.youtube_register import youtube_register
+from song_recommender.pages.content_management import content_management
+from song_recommender.pages.db_maintenance import db_maintenance
 
 app = rx.App()
-app.add_page(index)
-app.add_page(search_songs)
+app.add_page(
+    top_page,
+    route="/",
+    title="TOP",
+    description="楽曲レコメンドシステムのTOPページ",
+    image="",
+    on_load=None,
+)
+app.add_page(
+    search_songs,
+    route="/search-songs",
+    title="楽曲検索",
+    description="楽曲検索ページ",
+    image="",
+    on_load=None,
+)
+app.add_page(
+    youtube_register,
+    route="/youtube-register",
+    title="YouTube登録",
+    description="YouTube登録ページ",
+    image="",
+    on_load=None,
+)
+app.add_page(
+    content_management,
+    route="/content-management",
+    title="登録済みコンテンツ管理",
+    description="登録済みコンテンツ管理ページ",
+    image="",
+    on_load=None,
+)
+app.add_page(
+    db_maintenance,
+    route="/db-maintenance",
+    title="DBメンテナンス",
+    description="DBメンテナンスページ",
+    image="",
+    on_load=None,
+)

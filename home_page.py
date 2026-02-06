@@ -167,12 +167,19 @@ with st.expander("🎼 音声特徴量の統計情報", expanded=True):
                 else None
             )
 
+            # embeddings_dataがNoneでなく、要素を持つかチェック
+            has_embeddings = (
+                embeddings_data is not None
+                and hasattr(embeddings_data, "__len__")
+                and len(embeddings_data) > 0
+            )
+            has_metadatas = metadatas_data is not None
+
             if (
                 songs_data
                 and isinstance(songs_data, dict)
-                and embeddings_data is not None
-                and (hasattr(embeddings_data, "__len__") and len(embeddings_data) > 0)
-                and metadatas_data is not None
+                and has_embeddings
+                and has_metadatas
             ):
                 sample_size = len(songs_data["ids"])
                 st.success(

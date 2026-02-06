@@ -196,21 +196,24 @@ def get_random_songs(db: SongVectorDB, limit: int = 50) -> list[tuple[str, dict]
     with get_session() as session:
         stmt = select(Song).where(Song.excluded_from_search == False).order_by(func.rand()).limit(limit)
         songs = list(session.execute(stmt).scalars().all())
-    
-    return [
-        (song.song_id, {
-            "filename": song.filename,
-            "song_title": song.song_title,
-            "artist_name": song.artist_name,
-            "source_dir": song.source_dir,
-            "youtube_id": song.youtube_id,
-            "file_extension": song.file_extension,
-            "file_size_mb": song.file_size_mb,
-            "registered_at": song.registered_at.isoformat(),
-            "excluded_from_search": song.excluded_from_search,
-        })
-        for song in songs
-    ]
+        
+        # セッション内で属性にアクセスしてディクショナリを構築
+        result = [
+            (song.song_id, {
+                "filename": song.filename,
+                "song_title": song.song_title,
+                "artist_name": song.artist_name,
+                "source_dir": song.source_dir,
+                "youtube_id": song.youtube_id,
+                "file_extension": song.file_extension,
+                "file_size_mb": song.file_size_mb,
+                "registered_at": song.registered_at.isoformat(),
+                "excluded_from_search": song.excluded_from_search,
+            })
+            for song in songs
+        ]
+        
+    return result
 
 
 # ========== メイン画面 ==========

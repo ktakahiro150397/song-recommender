@@ -297,6 +297,7 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
                 {
                     "No.": idx,
                     "ファイル名": song_id,
+                    "アーティスト": metadata.get("artist_name", "") if metadata else "",
                     "source_dir": metadata.get("source_dir", "") if metadata else "",
                     "registered_at": (
                         metadata.get("registered_at", "") if metadata else ""
@@ -498,7 +499,12 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
                 key="chain_search_count",
             )
         with col2:
-            st.write("")  # スペース調整
+            artist_filter = st.text_input(
+                "アーティストフィルタ（任意）",
+                placeholder="例: YOASOBI",
+                help="アーティスト名で絞り込み（部分一致）",
+                key="artist_filter_input",
+            )
 
         if st.button("🔍 連鎖検索を実行", type="primary", key="chain_search_button"):
             with st.spinner("連鎖検索中..."):
@@ -520,6 +526,7 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
                     start_filename=selected_song,
                     dbs=dbs,
                     n_songs=chain_search_count,
+                    artist_filter=artist_filter if artist_filter else None,
                 )
 
                 # セッション状態に保存
@@ -543,6 +550,7 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
                     {
                         "No.": idx,
                         "ファイル名": song_id,
+                        "アーティスト": metadata.get("artist_name", "") if metadata else "",
                         "距離": f"{distance:.6f}" if distance > 0 else "-",
                         "source_dir": (
                             metadata.get("source_dir", "") if metadata else ""

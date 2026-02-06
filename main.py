@@ -159,6 +159,7 @@ def chain_search(
     start_filename: str,
     dbs: list[SongVectorDB],
     n_songs: int = 10,
+    artist_filter: str | None = None,
 ):
     """
     1曲から始めて類似曲を連鎖的に辿る（複数DBから最も近いものを選択）
@@ -167,6 +168,7 @@ def chain_search(
         start_filename: 開始曲のファイル名
         dbs: 使用するベクトルDBのリスト
         n_songs: 表示する曲数
+        artist_filter: アーティスト名でフィルタリング（部分一致）
     """
     visited: set[str] = set()
     current_song_id = start_filename
@@ -174,6 +176,8 @@ def chain_search(
     print(f"\n{'='*60}")
     print(f"連鎖検索開始: {start_filename}")
     print(f"表示曲数: {n_songs}, DB数: {len(dbs)}")
+    if artist_filter:
+        print(f"アーティストフィルタ: {artist_filter}")
     print(f"{'='*60}")
 
     # 開始曲の存在確認（最初のDBで確認）
@@ -217,6 +221,12 @@ def chain_search(
                 search_result["distances"][0],
                 search_result["metadatas"][0],
             ):
+                # アーティストフィルタが指定されている場合は、アーティスト名で絞り込み
+                if artist_filter:
+                    artist_name = metadata.get("artist_name", "") if metadata else ""
+                    if artist_filter.lower() not in artist_name.lower():
+                        continue
+                
                 if song_id not in visited and distance < best_distance:
                     best_song = song_id
                     best_distance = distance
@@ -269,6 +279,13 @@ def main():
         metavar="KEYWORD",
         help="キーワードで曲を検索して一覧表示",
     )
+    parser.add_argument(
+        "--artist",
+        "-a",
+        type=str,
+        metavar="ARTIST_NAME",
+        help="アーティスト名で連鎖検索をフィルタリング（部分一致）",
+    )
 
     args = parser.parse_args()
 
@@ -310,6 +327,7 @@ def main():
         start_filename=start_song,
         dbs=[db_full, db_balance, db_minimal],
         n_songs=args.count,
+        artist_filter=args.artist,
     )
 
 

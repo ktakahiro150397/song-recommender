@@ -206,3 +206,39 @@ def get_playlist_items(playlist_id: str) -> list[dict]:
             }
             for row in rows
         ]
+
+
+def delete_playlist(playlist_id: str, user_sub: str) -> bool:
+    """
+    プレイリストを削除する（自分が作成したもののみ）
+
+    Args:
+        playlist_id: YouTubeプレイリストID
+        user_sub: 削除を実行するユーザーのSub
+
+    Returns:
+        削除成功の場合True、それ以外False
+    """
+    if not playlist_id or not user_sub:
+        return False
+
+    with get_session() as session:
+        # プレイリストヘッダーを取得し、作成者を確認
+        header = session.execute(
+            select(PlaylistHeader).where(PlaylistHeader.playlist_id == playlist_id)
+        ).scalar_one_or_none()
+
+        if not header:
+            # プレイリストが存在しない
+            return False
+
+        if header.creator_sub != user_sub:
+            # 作成者以外は削除できない
+            return False
+
+        # プレイリストヘッダーを削除（カスケードでitems, commentsも削除される）
+        session.execute(
+            delete(PlaylistHeader).where(PlaylistHeader.playlist_id == playlist_id)
+        )
+
+    return True

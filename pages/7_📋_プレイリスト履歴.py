@@ -139,6 +139,21 @@ for idx, header in enumerate(headers, 1):
     )
     st.dataframe(header_df, use_container_width=True, hide_index=True)
 
+    # 削除ボタン（作成者のみ表示）
+    if user_sub and creator_sub == user_sub:
+        delete_button_key = f"delete_playlist_{playlist_id}"
+        if st.button(
+            "🗑️ このプレイリストを削除", 
+            key=delete_button_key, 
+            type="secondary",
+            help="このプレイリストを完全に削除します"
+        ):
+            if playlist_db.delete_playlist(playlist_id, user_sub):
+                st.success(f"プレイリスト「{playlist_name}」を削除しました")
+                st.rerun()
+            else:
+                st.error("プレイリストの削除に失敗しました")
+
     if header_comment:
         header_comment_html = html.escape(header_comment).replace("\n", "<br>")
         st.markdown(

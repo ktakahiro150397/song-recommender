@@ -375,10 +375,14 @@ if exclude_changes:
                             db_update = SongVectorDB(
                                 collection_name=collection_name, distance_fn="cosine"
                             )
-                            db_update.update_excluded_from_search(song_id, should_exclude)
+                            db_update.update_excluded_from_search(
+                                song_id, should_exclude
+                            )
 
                         # MySQLでも更新
-                        song_metadata_db.update_excluded_from_search(song_id, should_exclude)
+                        song_metadata_db.update_excluded_from_search(
+                            song_id, should_exclude
+                        )
                         success_count += 1
                     except Exception as e:
                         errors.append(f"{song_id}: {str(e)}")

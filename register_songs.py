@@ -21,6 +21,7 @@ from pathlib import Path
 from core.db_manager import SongVectorDB
 from core.feature_extractor import FeatureExtractor
 from core.song_queue_db import SongQueueDB
+from core import song_metadata_db
 from config import DB_CONFIGS
 
 # グローバル変数：中断フラグ
@@ -457,8 +458,8 @@ def add_song(
     Returns:
         登録したらTrue、スキップしたらFalse
     """
-    # ファイル名で既に登録済みならスキップ
-    if db.get_song(song_id=filename) is not None:
+    # ファイル名で既に登録済みならスキップ（MySQLをチェック）
+    if song_metadata_db.get_song(song_id=filename) is not None:
         return False
 
     # 対象の拡張子のみ処理
@@ -468,10 +469,10 @@ def add_song(
     # YouTube IDによる重複チェック
     youtube_id = extract_youtube_id(filename)
     if youtube_id:
-        existing = db.get_by_youtube_id(youtube_id)
+        existing = song_metadata_db.get_by_youtube_id(youtube_id)
         if existing:
             # print(
-            #     f"   ⏭️  YouTube動画ID ({youtube_id}) は既に登録済みです: {existing['id']}"
+            #     f"   ⏭️  YouTube動画ID ({youtube_id}) は既に登録済みです: {existing.song_id}"
             # )
             return False
 
@@ -482,29 +483,32 @@ def add_song(
         print(f"   ❌ 特徴量抽出エラー ({filename}): {str(e)}")
         raise
 
-    # メタデータ構築（youtube_idは既に抽出済み）
+    # 曲名とファイル情報を取得
     song_title = (
         song_title_override if song_title_override else extract_song_title(filename)
     )
     _, ext = os.path.splitext(filename)
 
-    metadata = {
-        "filename": filename,
-        "song_title": song_title,  # 抽出した曲名（または上書き）
-        "artist_name": (
-            artist_name if artist_name is not None else ""
-        ),  # アーティスト名（キューから取得）
-        "source_dir": normalized_dir,  # data/xxx 形式
-        "youtube_id": (
-            youtube_id if youtube_id is not None else ""
-        ),  # YouTube動画ID（なければNone）
-        "file_extension": ext.lower(),  # .mp3 or .wav
-        "file_size_mb": get_file_size_mb(file_path),
-        "registered_at": datetime.now().isoformat(),
-        "excluded_from_search": False,  # デフォルトは検索対象
-    }
+    # MySQLにメタデータを保存
+    song_metadata_db.add_song(
+        song_id=filename,
+        filename=filename,
+        song_title=song_title,
+        artist_name=artist_name if artist_name is not None else "",
+        source_dir=normalized_dir,
+        youtube_id=youtube_id if youtube_id is not None else "",
+        file_extension=ext.lower(),
+        file_size_mb=get_file_size_mb(file_path),
+        excluded_from_search=False,
+    )
 
-    db.add_song(song_id=filename, embedding=embedding, metadata=metadata)
+    # ChromaDBには最小限のデータのみ保存（IDとベクトルと検索除外フラグ）
+    db.add_song(song_id=filename, embedding=embedding, excluded_from_search=False)
+
+    # 処理済みコレクションとしてマーク
+    collection_name = db.collection.name
+    song_metadata_db.mark_as_processed(song_id=filename, collection_name=collection_name)
+
     return True
 
 
@@ -515,7 +519,7 @@ def prepare_song_data(
     normalized_dir: str,
     artist_name: str | None = None,
     song_title_override: str | None = None,
-) -> tuple[str, list[float], dict] | None:
+) -> tuple[str, list[float], str, str, str, str, float] | None:
     """
     1曲分のデータを準備する（バッチ処理用）
 
@@ -528,7 +532,8 @@ def prepare_song_data(
         song_title_override: 曲名上書き（任意）
 
     Returns:
-        (song_id, embedding, metadata) のタプル、または処理不要の場合はNone
+        (song_id, embedding, song_title, artist_name, youtube_id, file_extension, file_size_mb) のタプル、
+        または処理不要の場合はNone
     """
     # 対象の拡張子のみ処理
     if not (filename.endswith(".wav") or filename.endswith(".mp3")):
@@ -548,31 +553,29 @@ def prepare_song_data(
     )
     _, ext = os.path.splitext(filename)
 
-    metadata = {
-        "filename": filename,
-        "song_title": song_title,
-        "artist_name": artist_name if artist_name is not None else "",
-        "source_dir": normalized_dir,
-        "youtube_id": youtube_id if youtube_id is not None else "",
-        "file_extension": ext.lower(),
-        "file_size_mb": get_file_size_mb(file_path),
-        "registered_at": datetime.now().isoformat(),
-        "excluded_from_search": False,  # デフォルトは検索対象
-    }
-
-    return (filename, embedding, metadata)
+    return (
+        filename,  # song_id
+        embedding,
+        song_title,
+        artist_name if artist_name is not None else "",
+        youtube_id if youtube_id is not None else "",
+        ext.lower(),
+        get_file_size_mb(file_path),
+    )
 
 
 def add_songs_batch(
     db: SongVectorDB,
-    song_data_list: list[tuple[str, list[float], dict]],
+    song_data_list: list[tuple[str, list[float], str, str, str, str, float]],
+    normalized_dir: str,
 ) -> int:
     """
     複数の曲を一括でDBに登録する（バルクインサート）
 
     Args:
         db: ベクトルDB
-        song_data_list: (song_id, embedding, metadata) のリスト
+        song_data_list: (song_id, embedding, song_title, artist_name, youtube_id, file_extension, file_size_mb) のリスト
+        normalized_dir: 正規化されたディレクトリパス
 
     Returns:
         登録した曲数
@@ -582,9 +585,43 @@ def add_songs_batch(
 
     song_ids = [data[0] for data in song_data_list]
     embeddings = [data[1] for data in song_data_list]
-    metadatas = [data[2] for data in song_data_list]
 
-    db.add_songs(song_ids, embeddings, metadatas)
+    # MySQLにメタデータを一括登録（bulk_save_objects使用）
+    from core.database import get_session
+    from core.models import Song, ProcessedCollection
+    
+    songs = []
+    processed_records = []
+    collection_name = db.collection.name
+    
+    for data in song_data_list:
+        song_id, _, song_title, artist_name, youtube_id, file_extension, file_size_mb = data
+        songs.append(Song(
+            song_id=song_id,
+            filename=song_id,
+            song_title=song_title,
+            artist_name=artist_name,
+            source_dir=normalized_dir,
+            youtube_id=youtube_id,
+            file_extension=file_extension,
+            file_size_mb=file_size_mb,
+            registered_at=datetime.now(),
+            excluded_from_search=False,
+        ))
+        processed_records.append(ProcessedCollection(
+            song_id=song_id,
+            collection_name=collection_name,
+            processed_at=datetime.now(),
+        ))
+    
+    with get_session() as session:
+        session.bulk_save_objects(songs)
+        session.bulk_save_objects(processed_records)
+
+    # ChromaDBには最小限のデータのみ保存
+    excluded_flags = [False] * len(song_ids)
+    db.add_songs(song_ids, embeddings, excluded_flags)
+
     return len(song_data_list)
 
 
@@ -732,16 +769,18 @@ def main():
                         # 各DBに対してバッチ登録
                         for db, extractor, mode in dbs_and_extractors:
                             batch_data = []
+                            current_normalized_dir = ""  # デフォルト値を設定
                             for file_path, filename, normalized_dir in files_to_process:
+                                current_normalized_dir = normalized_dir
                                 song_data = prepare_song_data(
                                     extractor, file_path, filename, normalized_dir
                                 )
                                 if song_data:
                                     batch_data.append(song_data)
 
-                            if batch_data:
+                            if batch_data and current_normalized_dir:
                                 try:
-                                    added_count = add_songs_batch(db, batch_data)
+                                    added_count = add_songs_batch(db, batch_data, current_normalized_dir)
                                     if (
                                         mode == dbs_and_extractors[0][2]
                                     ):  # 最初のDBのみカウント

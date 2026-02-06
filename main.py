@@ -9,6 +9,7 @@
 
 import argparse
 from core.db_manager import SongVectorDB
+from core import song_metadata_db
 import os
 from colorama import Fore, Style, init
 from config import DB_CONFIGS
@@ -34,9 +35,9 @@ def find_song_by_keyword(db: SongVectorDB, keyword: str, limit: int = 10) -> lis
     Returns:
         マッチした曲IDのリスト
     """
-    # db.search_by_keywordを使用（100k件まで対応）
-    result = db.search_by_keyword(keyword, limit=limit)
-    return result["ids"]
+    # MySQLでキーワード検索
+    songs = song_metadata_db.search_by_keyword(keyword, limit=limit)
+    return [song.song_id for song in songs]
 
 
 def select_song_interactive(db: SongVectorDB, keyword: str) -> str | None:

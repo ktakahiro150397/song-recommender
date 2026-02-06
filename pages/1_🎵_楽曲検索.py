@@ -297,6 +297,7 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
                 {
                     "No.": idx,
                     "ファイル名": song_id,
+                    "アーティスト": metadata.get("artist_name", "") if metadata else "",
                     "source_dir": metadata.get("source_dir", "") if metadata else "",
                     "registered_at": (
                         metadata.get("registered_at", "") if metadata else ""
@@ -487,6 +488,10 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
         st.subheader("🔗 曲調おすすめプレイリスト作成（連鎖検索）")
         st.info("💡 この曲から似た曲を連鎖的に検索してプレイリストを作成")
 
+        # セッション状態の初期化
+        if "artist_filter_value" not in st.session_state:
+            st.session_state.artist_filter_value = ""
+
         col1, col2 = st.columns(2)
         with col1:
             chain_search_count = st.number_input(
@@ -498,7 +503,30 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
                 key="chain_search_count",
             )
         with col2:
-            st.write("")  # スペース調整
+            artist_filter = st.text_input(
+                "アーティストフィルタ（任意）",
+                placeholder="例: gakumas_mv",
+                help="ディレクトリ名で絞り込み（部分一致、例: gakumas_mv）",
+                value=st.session_state.artist_filter_value,
+            )
+
+        # 選択中の曲のディレクトリを入力するボタン
+        if st.button("📎 選択中の曲のディレクトリを入力", type="secondary"):
+            # DBから選択中の曲の情報を取得
+            song_data = db.get_song(selected_song)
+            if song_data:
+                metadata = song_data.get("metadata", {})
+                source_dir = metadata.get("source_dir", "")
+                if source_dir:
+                    # "data/" を除いた部分を取得
+                    dir_name = source_dir.replace("data/", "").replace("data\\", "")
+                    st.session_state.artist_filter_value = dir_name
+                    st.success(f"✅ ディレクトリ「{dir_name}」を入力しました")
+                    st.rerun()
+                else:
+                    st.warning("⚠️ ディレクトリ情報が見つかりません")
+            else:
+                st.warning("⚠️ 選択中の曲の情報がDBに見つかりません")
 
         if st.button("🔍 連鎖検索を実行", type="primary", key="chain_search_button"):
             with st.spinner("連鎖検索中..."):
@@ -520,6 +548,7 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
                     start_filename=selected_song,
                     dbs=dbs,
                     n_songs=chain_search_count,
+                    artist_filter=artist_filter if artist_filter else None,
                 )
 
                 # セッション状態に保存
@@ -543,6 +572,9 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
                     {
                         "No.": idx,
                         "ファイル名": song_id,
+                        "アーティスト": (
+                            metadata.get("artist_name", "") if metadata else ""
+                        ),
                         "距離": f"{distance:.6f}" if distance > 0 else "-",
                         "source_dir": (
                             metadata.get("source_dir", "") if metadata else ""

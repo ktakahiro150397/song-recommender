@@ -132,6 +132,7 @@ def chain_search_to_list(
     start_filename: str,
     dbs: list[SongVectorDB],
     n_songs: int = 30,
+    artist_filter: str | None = None,
 ) -> list[tuple[str, float, dict]]:
     """
     1曲から始めて類似曲を連鎖的に辿り、結果をリストで返す
@@ -140,6 +141,7 @@ def chain_search_to_list(
         start_filename: 開始曲のファイル名
         dbs: 使用するベクトルDBのリスト
         n_songs: 取得する曲数
+        artist_filter: アーティスト名でフィルタリング（部分一致）
 
     Returns:
         [(song_id, distance, metadata), ...] のリスト（開始曲を含む）
@@ -151,6 +153,8 @@ def chain_search_to_list(
     print(f"\n{'='*60}")
     print(f"🔗 連鎖検索開始: {start_filename}")
     print(f"   取得曲数: {n_songs}, DB数: {len(dbs)}")
+    if artist_filter:
+        print(f"   アーティストフィルタ: {artist_filter}")
     print(f"{'='*60}")
 
     # 開始曲の存在確認（全てのDBで確認）
@@ -185,9 +189,11 @@ def chain_search_to_list(
 
             vector = current_song["embedding"]
             # 検索除外フラグが False (未設定を含む) の曲のみ検索
+            # フィルタがある場合はより多くの候補を取得（絞られる分を考慮）
+            n_candidates = max(100, len(visited) * 2 + 50)
             search_result = db.search_similar(
                 query_embedding=vector,
-                n_results=len(visited) + 10,
+                n_results=n_candidates,
                 where={"excluded_from_search": {"$ne": True}},
             )
 
@@ -196,6 +202,14 @@ def chain_search_to_list(
                 search_result["distances"][0],
                 search_result["metadatas"][0],
             ):
+                # フィルタが指定されている場合は、source_dir で絞り込み
+                if artist_filter:
+                    source_dir = metadata.get("source_dir", "") if metadata else ""
+                    # "data/" を除いた部分を取得して比較
+                    dir_name = source_dir.replace("data/", "").replace("data\\", "")
+                    if artist_filter.lower() not in dir_name.lower():
+                        continue
+
                 if song_id not in visited and distance < best_distance:
                     best_song = song_id
                     best_distance = distance

@@ -160,6 +160,11 @@ def get_recently_added_songs(
     ]
 
 
+@st.cache_data(show_spinner=False)
+def get_source_dir_names() -> list[str]:
+    return song_metadata_db.list_source_dir_names(exclude_from_search=True)
+
+
 def get_random_songs(db: SongVectorDB, limit: int = 50) -> list[tuple[str, dict]]:
     """ランダムに楽曲を取得
 
@@ -310,14 +315,14 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
 
     # 表示タイトルを変更
     if st.session_state.last_keyword == "__recommend__":
-        st.info("✨ ランダムに選ばれた楽曲を表示しています")
+        pass
 
     if matches:
         st.success(f"✅ {len(matches)}件見つかりました")
 
-        st.info(
-            "💡 **使い方:** 下の表で曲の行をクリックして、類似曲検索やプレイリスト作成に使用する曲を選択してください。"
-        )
+        # st.info(
+        #     "💡 **使い方:** 下の表で曲の行をクリックして、類似曲検索やプレイリスト作成に使用する曲を選択してください。"
+        # )
 
         # データフレームとして表示
         df_data = []
@@ -534,8 +539,13 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
         st.info("💡 この曲から似た曲を連鎖的に検索してプレイリストを作成")
 
         # セッション状態の初期化
-        if "artist_filter_value" not in st.session_state:
-            st.session_state.artist_filter_value = ""
+        if "source_dir_filter_selected" not in st.session_state:
+            if "artist_filter_selected" in st.session_state:
+                st.session_state.source_dir_filter_selected = (
+                    st.session_state.artist_filter_selected
+                )
+            else:
+                st.session_state.source_dir_filter_selected = []
 
         col1, col2 = st.columns(2)
         with col1:
@@ -548,29 +558,13 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
                 key="chain_search_count",
             )
         with col2:
-            artist_filter = st.text_input(
-                "アーティストフィルタ（任意）",
-                placeholder="例: gakumas_mv",
-                help="ディレクトリ名で絞り込み（部分一致、例: gakumas_mv）",
-                value=st.session_state.artist_filter_value,
+            source_dir_names = get_source_dir_names()
+            source_dir_filter_selected = st.multiselect(
+                "登録元フィルタ（任意）",
+                options=source_dir_names,
+                help="source_dir（data/除去）から複数選択（検索で絞り込み）",
+                key="source_dir_filter_selected",
             )
-
-        # 選択中の曲のディレクトリを入力するボタン
-        if st.button("📎 選択中の曲のディレクトリを入力", type="secondary"):
-            # MySQLから選択中の曲の情報を取得
-            song = song_metadata_db.get_song(selected_song)
-            if song:
-                source_dir = song.get("source_dir", "")
-                if source_dir:
-                    # "data/" を除いた部分を取得
-                    dir_name = source_dir.replace("data/", "").replace("data\\", "")
-                    st.session_state.artist_filter_value = dir_name
-                    st.success(f"✅ ディレクトリ「{dir_name}」を入力しました")
-                    st.rerun()
-                else:
-                    st.warning("⚠️ ディレクトリ情報が見つかりません")
-            else:
-                st.warning("⚠️ 選択中の曲の情報がDBに見つかりません")
 
         if st.button("🔍 連鎖検索を実行", type="primary", key="chain_search_button"):
             with st.spinner("連鎖検索中..."):
@@ -592,7 +586,11 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
                     start_filename=selected_song,
                     dbs=dbs,
                     n_songs=chain_search_count,
-                    artist_filter=artist_filter if artist_filter else None,
+                    artist_filter=(
+                        source_dir_filter_selected
+                        if source_dir_filter_selected
+                        else None
+                    ),
                 )
 
                 # セッション状態に保存

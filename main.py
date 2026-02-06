@@ -160,7 +160,7 @@ def chain_search(
     start_filename: str,
     dbs: list[SongVectorDB],
     n_songs: int = 10,
-    artist_filter: str | None = None,
+    artist_filter: str | list[str] | None = None,
 ):
     """
     1曲から始めて類似曲を連鎖的に辿る（複数DBから最も近いものを選択）
@@ -169,20 +169,36 @@ def chain_search(
         start_filename: 開始曲のファイル名
         dbs: 使用するベクトルDBのリスト
         n_songs: 表示する曲数
-        artist_filter: アーティスト名でフィルタリング（部分一致）
+        artist_filter: source_dirでフィルタリング（複数可）
     """
     visited: set[str] = set()
     current_song_id = start_filename
 
-    # アーティストフィルタが指定されている場合、source_dir フィルタを構築
+    # source_dirフィルタが指定されている場合、whereフィルタを構築
     where_filter: dict | None = None
     if artist_filter:
-        matching_songs = song_metadata_db.search_by_keyword(artist_filter, limit=10000)
-        matched_dirs = list(
-            set(metadata.get("source_dir", "") for _, metadata in matching_songs)
-        )
+        if isinstance(artist_filter, list):
+            source_dir_filters = [
+                name.strip() for name in artist_filter if name.strip()
+            ]
+        elif "," in artist_filter:
+            source_dir_filters = [
+                name.strip() for name in artist_filter.split(",") if name.strip()
+            ]
+        else:
+            source_dir_filters = [artist_filter.strip()]
+
+        matched_dirs = set()
+        for name in source_dir_filters:
+            if name.startswith("data/") or name.startswith("data\\"):
+                matched_dirs.add(name)
+            else:
+                matched_dirs.add(name)
+                matched_dirs.add(f"data/{name}")
+                matched_dirs.add(f"data\\{name}")
+        matched_dirs = list(matched_dirs)
         if not matched_dirs:
-            print(f"❌ '{artist_filter}' に一致するディレクトリが見つかりません。")
+            print("❌ 指定した登録元に一致するディレクトリが見つかりません。")
             return
         # $in で複数のsource_dirをOR検索
         where_filter = {"source_dir": {"$in": matched_dirs}}
@@ -191,7 +207,7 @@ def chain_search(
     print(f"連鎖検索開始: {start_filename}")
     print(f"表示曲数: {n_songs}, DB数: {len(dbs)}")
     if artist_filter:
-        print(f"アーティストフィルタ: {artist_filter}")
+        print(f"登録元フィルタ: {', '.join(source_dir_filters)}")
         print(f"対象ディレクトリ: {len(matched_dirs)}個")
     print(f"{'='*60}")
 
@@ -200,14 +216,6 @@ def chain_search(
     if exist_song is None:
         print(f"開始曲 {current_song_id} がDBに見つかりません。")
         return
-
-    # フィルタが指定されている場合、開始曲がフィルタに含まれるか確認
-    if where_filter:
-        start_metadata = exist_song.get("metadata", {})
-        start_source_dir = start_metadata.get("source_dir", "")
-        if start_source_dir not in matched_dirs:
-            print(f"❌ 開始曲 {current_song_id} はフィルタ条件に含まれません。")
-            return
 
     # 開始曲を表示
     start_metadata = exist_song.get("metadata", {})

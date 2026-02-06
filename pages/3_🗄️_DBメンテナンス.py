@@ -24,21 +24,21 @@ DB_PATHS = {
 
 def load_songs_as_dataframe(db: SongVectorDB, limit: int = 1000) -> pd.DataFrame:
     """DBから曲一覧を取得してDataFrameに変換"""
-    # MySQLから曲一覧を取得
+    # MySQLから曲一覧を取得（セッション内で辞書化済み）
     songs = song_metadata_db.list_all(limit=limit, exclude_from_search=False)
 
     if not songs:
         return pd.DataFrame()
 
     data = []
-    for song in songs:
+    for song_id, metadata in songs:
         data.append(
             {
                 "選択": False,  # チェックボックス用
-                "ID": song.song_id,
-                "source_dir": song.source_dir,
-                "filename": song.filename,
-                "検索除外": song.excluded_from_search,
+                "ID": song_id,
+                "source_dir": metadata["source_dir"],
+                "filename": metadata["filename"],
+                "検索除外": metadata["excluded_from_search"],
             }
         )
 
@@ -56,7 +56,7 @@ def delete_songs(song_ids: list[str]) -> tuple[int, list[str]]:
             for collection_name in DB_PATHS.values():
                 db = SongVectorDB(collection_name=collection_name, distance_fn="cosine")
                 db.delete_song(song_id)
-            
+
             # MySQLからも削除
             song_metadata_db.delete_song(song_id)
             success_count += 1
@@ -77,7 +77,7 @@ def toggle_excluded_flag(song_ids: list[str], exclude: bool) -> tuple[int, list[
             for collection_name in DB_PATHS.values():
                 db = SongVectorDB(collection_name=collection_name, distance_fn="cosine")
                 db.update_excluded_from_search(song_id, exclude)
-            
+
             # MySQLでも更新
             song_metadata_db.update_excluded_from_search(song_id, exclude)
             success_count += 1

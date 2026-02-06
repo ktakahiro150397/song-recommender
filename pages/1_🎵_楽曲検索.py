@@ -104,47 +104,13 @@ def find_song_by_keyword_with_metadata(
         (song_id, metadata)のタプルのリスト
     """
     if keyword:
-        # MySQLでキーワード検索
-        songs = song_metadata_db.search_by_keyword(
+        # MySQLでキーワード検索（セッション内で辞書化済み）
+        matches = song_metadata_db.search_by_keyword(
             keyword, limit=limit, exclude_from_search=True
         )
-        matches = [
-            (
-                song.song_id,
-                {
-                    "filename": song.filename,
-                    "song_title": song.song_title,
-                    "artist_name": song.artist_name,
-                    "source_dir": song.source_dir,
-                    "youtube_id": song.youtube_id,
-                    "file_extension": song.file_extension,
-                    "file_size_mb": song.file_size_mb,
-                    "registered_at": song.registered_at.isoformat(),
-                    "excluded_from_search": song.excluded_from_search,
-                },
-            )
-            for song in songs
-        ]
     else:
-        # 全曲取得
-        songs = song_metadata_db.list_all(limit=limit, exclude_from_search=True)
-        matches = [
-            (
-                song.song_id,
-                {
-                    "filename": song.filename,
-                    "song_title": song.song_title,
-                    "artist_name": song.artist_name,
-                    "source_dir": song.source_dir,
-                    "youtube_id": song.youtube_id,
-                    "file_extension": song.file_extension,
-                    "file_size_mb": song.file_size_mb,
-                    "registered_at": song.registered_at.isoformat(),
-                    "excluded_from_search": song.excluded_from_search,
-                },
-            )
-            for song in songs
-        ]
+        # 全曲取得（セッション内で辞書化済み）
+        matches = song_metadata_db.list_all(limit=limit, exclude_from_search=True)
 
     return matches
 
@@ -594,7 +560,7 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
             # MySQLから選択中の曲の情報を取得
             song = song_metadata_db.get_song(selected_song)
             if song:
-                source_dir = song.source_dir
+                source_dir = song.get("source_dir", "")
                 if source_dir:
                     # "data/" を除いた部分を取得
                     dir_name = source_dir.replace("data/", "").replace("data\\", "")

@@ -52,7 +52,7 @@ def add_song(
         session.add(song)
 
 
-def get_song(song_id: str) -> Song | None:
+def get_song(song_id: str) -> dict | None:
     """
     楽曲メタデータを取得する
 
@@ -60,14 +60,29 @@ def get_song(song_id: str) -> Song | None:
         song_id: 楽曲ID
 
     Returns:
-        楽曲情報（見つからない場合はNone）
+        楽曲情報の辞書（見つからない場合はNone）
     """
     with get_session() as session:
         stmt = select(Song).where(Song.song_id == song_id)
-        return session.execute(stmt).scalar_one_or_none()
+        result = session.execute(stmt).scalar_one_or_none()
+        if result:
+            # セッション内で辞書に変換
+            return {
+                "song_id": result.song_id,
+                "filename": result.filename,
+                "song_title": result.song_title,
+                "artist_name": result.artist_name,
+                "source_dir": result.source_dir,
+                "youtube_id": result.youtube_id,
+                "file_extension": result.file_extension,
+                "file_size_mb": result.file_size_mb,
+                "registered_at": result.registered_at.isoformat(),
+                "excluded_from_search": result.excluded_from_search,
+            }
+        return None
 
 
-def get_songs(song_ids: list[str]) -> list[Song]:
+def get_songs(song_ids: list[str]) -> list[dict]:
     """
     複数の楽曲メタデータを一括取得する
 
@@ -75,17 +90,33 @@ def get_songs(song_ids: list[str]) -> list[Song]:
         song_ids: 楽曲IDのリスト
 
     Returns:
-        楽曲情報のリスト
+        楽曲情報の辞書のリスト
     """
     if not song_ids:
         return []
 
     with get_session() as session:
         stmt = select(Song).where(Song.song_id.in_(song_ids))
-        return list(session.execute(stmt).scalars().all())
+        results = list(session.execute(stmt).scalars().all())
+        # セッション内で辞書に変換
+        return [
+            {
+                "song_id": song.song_id,
+                "filename": song.filename,
+                "song_title": song.song_title,
+                "artist_name": song.artist_name,
+                "source_dir": song.source_dir,
+                "youtube_id": song.youtube_id,
+                "file_extension": song.file_extension,
+                "file_size_mb": song.file_size_mb,
+                "registered_at": song.registered_at.isoformat(),
+                "excluded_from_search": song.excluded_from_search,
+            }
+            for song in results
+        ]
 
 
-def get_by_youtube_id(youtube_id: str) -> Song | None:
+def get_by_youtube_id(youtube_id: str) -> dict | None:
     """
     YouTube動画IDで楽曲を検索する
 
@@ -93,16 +124,31 @@ def get_by_youtube_id(youtube_id: str) -> Song | None:
         youtube_id: YouTube動画ID（11文字）
 
     Returns:
-        楽曲情報（見つからない場合はNone）
+        楽曲情報の辞書（見つからない場合はNone）
     """
     with get_session() as session:
         stmt = select(Song).where(Song.youtube_id == youtube_id)
-        return session.execute(stmt).scalar_one_or_none()
+        result = session.execute(stmt).scalar_one_or_none()
+        if result:
+            # セッション内で辞書に変換
+            return {
+                "song_id": result.song_id,
+                "filename": result.filename,
+                "song_title": result.song_title,
+                "artist_name": result.artist_name,
+                "source_dir": result.source_dir,
+                "youtube_id": result.youtube_id,
+                "file_extension": result.file_extension,
+                "file_size_mb": result.file_size_mb,
+                "registered_at": result.registered_at.isoformat(),
+                "excluded_from_search": result.excluded_from_search,
+            }
+        return None
 
 
 def search_by_keyword(
     keyword: str, limit: int = 10000, exclude_from_search: bool = True
-) -> list[Song]:
+) -> list[tuple[str, dict]]:
     """
     キーワードでメタデータを部分一致検索する（SQL LIKE検索）
 
@@ -112,7 +158,7 @@ def search_by_keyword(
         exclude_from_search: 検索除外フラグがTrueの曲を除外するか
 
     Returns:
-        マッチした楽曲のリスト
+        (song_id, metadata_dict)のタプルのリスト
     """
     with get_session() as session:
         keyword_pattern = f"%{keyword}%"
@@ -130,7 +176,26 @@ def search_by_keyword(
             stmt = stmt.where(Song.excluded_from_search == False)
 
         stmt = stmt.limit(limit)
-        return list(session.execute(stmt).scalars().all())
+        songs = list(session.execute(stmt).scalars().all())
+        # セッション内で辞書に変換（detached instance エラーを防ぐ）
+        results = [
+            (
+                song.song_id,
+                {
+                    "filename": song.filename,
+                    "song_title": song.song_title,
+                    "artist_name": song.artist_name,
+                    "source_dir": song.source_dir,
+                    "youtube_id": song.youtube_id,
+                    "file_extension": song.file_extension,
+                    "file_size_mb": song.file_size_mb,
+                    "registered_at": song.registered_at.isoformat(),
+                    "excluded_from_search": song.excluded_from_search,
+                },
+            )
+            for song in songs
+        ]
+        return results
 
 
 def update_excluded_from_search(song_id: str, excluded: bool) -> bool:
@@ -183,7 +248,7 @@ def count_songs(exclude_from_search: bool = False) -> int:
         楽曲数
     """
     from sqlalchemy import func
-    
+
     with get_session() as session:
         stmt = select(func.count()).select_from(Song)
         if exclude_from_search:
@@ -191,7 +256,9 @@ def count_songs(exclude_from_search: bool = False) -> int:
         return session.scalar(stmt) or 0
 
 
-def list_all(limit: int = 100, exclude_from_search: bool = False) -> list[Song]:
+def list_all(
+    limit: int = 100, exclude_from_search: bool = False
+) -> list[tuple[str, dict]]:
     """
     登録されている楽曲一覧を取得する
 
@@ -200,14 +267,33 @@ def list_all(limit: int = 100, exclude_from_search: bool = False) -> list[Song]:
         exclude_from_search: 検索除外フラグがTrueの曲を除外するか
 
     Returns:
-        楽曲一覧
+        (song_id, metadata_dict)のタプルのリスト
     """
     with get_session() as session:
         stmt = select(Song)
         if exclude_from_search:
             stmt = stmt.where(Song.excluded_from_search == False)
         stmt = stmt.limit(limit)
-        return list(session.execute(stmt).scalars().all())
+        songs = list(session.execute(stmt).scalars().all())
+        # セッション内で辞書に変換（detached instance エラーを防ぐ）
+        results = [
+            (
+                song.song_id,
+                {
+                    "filename": song.filename,
+                    "song_title": song.song_title,
+                    "artist_name": song.artist_name,
+                    "source_dir": song.source_dir,
+                    "youtube_id": song.youtube_id,
+                    "file_extension": song.file_extension,
+                    "file_size_mb": song.file_size_mb,
+                    "registered_at": song.registered_at.isoformat(),
+                    "excluded_from_search": song.excluded_from_search,
+                },
+            )
+            for song in songs
+        ]
+        return results
 
 
 # === ProcessedCollection 関連の関数 ===
@@ -307,17 +393,4 @@ def get_songs_as_dict(song_ids: list[str]) -> dict[str, dict]:
         {song_id: metadata_dict} の辞書
     """
     songs = get_songs(song_ids)
-    return {
-        song.song_id: {
-            "filename": song.filename,
-            "song_title": song.song_title,
-            "artist_name": song.artist_name,
-            "source_dir": song.source_dir,
-            "youtube_id": song.youtube_id,
-            "file_extension": song.file_extension,
-            "file_size_mb": song.file_size_mb,
-            "registered_at": song.registered_at.isoformat(),
-            "excluded_from_search": song.excluded_from_search,
-        }
-        for song in songs
-    }
+    return {song_dict["song_id"]: song_dict for song_dict in songs}

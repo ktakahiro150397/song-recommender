@@ -12,6 +12,8 @@ import streamlit.components.v1 as components
 
 from core import playlist_db
 from core.ui_styles import style_distance_column
+from core.user_db import get_emails_by_subs
+from core import song_metadata_db
 from core.user_db import get_display_names_by_subs
 
 
@@ -151,7 +153,9 @@ for idx, header in enumerate(headers, 1):
 
         if comments:
             for comment in comments:
-                comment_display_name = comment_display_name_map.get(comment["user_sub"], "-")
+                comment_display_name = comment_display_name_map.get(
+                    comment["user_sub"], "-"
+                )
                 comment_time = format_created_at(comment["created_at"], timezone)
                 with st.chat_message("user"):
                     st.markdown(f"**{comment_display_name}** · {comment_time}")
@@ -195,15 +199,23 @@ for idx, header in enumerate(headers, 1):
             st.divider()
             continue
 
+        # Fetch source_dir for all songs in the playlist
+        song_ids = [item["song_id"] for item in items]
+        song_metadata = song_metadata_db.get_songs_as_dict(song_ids)
+
         table_rows = []
         distances = []
         for item in items:
             distance = float(item["cosine_distance"])
             distances.append(distance)
+            song_id = item["song_id"]
+            metadata = song_metadata.get(song_id, {})
+            source_dir = metadata.get("source_dir", "-")
             table_rows.append(
                 {
                     "Seq": item["seq"],
-                    "Song ID": item["song_id"],
+                    "Song ID": song_id,
+                    "Source Dir": source_dir,
                     "コサイン距離": f"{distance:.6f}",
                 }
             )
@@ -218,6 +230,19 @@ for idx, header in enumerate(headers, 1):
             avg_distance = sum(distances) / len(distances) if distances else 0.0
             st.metric("平均コサイン距離", f"{avg_distance:.6f}")
 
-        st.dataframe(styled_df, use_container_width=True, hide_index=True)
+        st.dataframe(
+            styled_df,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Seq": st.column_config.NumberColumn("Seq", width="small"),
+                "Song ID": st.column_config.TextColumn("Song ID", width="medium"),
+                "Source Dir": st.column_config.TextColumn("Source Dir", width="medium"),
+                "コサイン距離": st.column_config.TextColumn(
+                    "コサイン距離", width="small"
+                ),
+            },
+            height=400,
+        )
 
     st.divider()

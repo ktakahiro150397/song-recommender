@@ -12,6 +12,8 @@ import random
 
 from core.db_manager import SongVectorDB
 from core import song_metadata_db
+from core import playlist_db
+from core.ui_styles import style_distance_column, style_distance_value
 from create_playlist_from_chain import (
     chain_search_to_list,
     filename_to_query,
@@ -19,64 +21,6 @@ from create_playlist_from_chain import (
     BROWSER_FILE,
 )
 from core.ytmusic_manager import YTMusicManager
-
-# ========== ユーティリティ関数 ==========
-
-
-def style_distance_value(val):
-    """距離の値に色付けスタイルを返す（個別の値用）"""
-    if val == "-":
-        return "background-color: #f0f0f0; color: #666; font-weight: bold"
-    try:
-        distance = float(val)
-        ratio = min(distance / 0.01, 1.0)
-        if ratio < 0.5:
-            r = int(255 * (ratio * 2))
-            g = 255
-        else:
-            r = 255
-            g = int(255 * (1 - (ratio - 0.5) * 2))
-        b = 0
-        # 背景色を薄く設定
-        bg_r = int(r * 0.2 + 255 * 0.8)
-        bg_g = int(g * 0.2 + 255 * 0.8)
-        bg_b = int(b * 0.2 + 255 * 0.8)
-        return f"background-color: #{bg_r:02x}{bg_g:02x}{bg_b:02x}; color: #{r:02x}{g:02x}{b:02x}; font-weight: bold"
-    except:
-        return ""
-
-
-def style_distance_column(df: pd.DataFrame) -> pd.DataFrame:
-    """距離列に色付けスタイルを適用（背景色付き）"""
-
-    def color_distance(val):
-        if val == "-":
-            return "background-color: #f0f0f0; color: #666; font-weight: bold"
-        try:
-            distance = float(val)
-            ratio = min(distance / 0.01, 1.0)
-            if ratio < 0.5:
-                r = int(255 * (ratio * 2))
-                g = 255
-            else:
-                r = 255
-                g = int(255 * (1 - (ratio - 0.5) * 2))
-            b = 0
-            # 背景色を薄く設定（RGB値を0.2の重みで白に近づける）
-            bg_r = int(r * 0.2 + 255 * 0.8)
-            bg_g = int(g * 0.2 + 255 * 0.8)
-            bg_b = int(b * 0.2 + 255 * 0.8)
-            return f"background-color: #{bg_r:02x}{bg_g:02x}{bg_b:02x}; color: #{r:02x}{g:02x}{b:02x}; font-weight: bold"
-        except:
-            return ""
-
-    # 距離列が存在する場合のみスタイルを適用
-    if "距離" in df.columns:
-        styled = df.style.map(color_distance, subset=["距離"])
-        return styled
-    else:
-        return df.style
-
 
 # ========== 設定 ==========
 from config import DB_CONFIGS
@@ -646,6 +590,12 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
                 key="playlist_name_input",
             )
 
+            playlist_header_comment = st.text_area(
+                "プレイリストコメント",
+                placeholder="例: 今回は落ち着いた曲中心で作成",
+                key="playlist_header_comment_input",
+            )
+
             # プレイリスト作成ボタンのコールバック関数
             def start_playlist_creation():
                 st.session_state.playlist_creating = True
@@ -710,12 +660,33 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
                             status_text.empty()
 
                             if video_ids:
+                                description_lines = [
+                                    f"曲調おすすめプレイリスト検索結果 ({len(video_ids)}曲)"
+                                ]
+                                if (
+                                    playlist_header_comment
+                                    and playlist_header_comment.strip()
+                                ):
+                                    description_lines.extend(
+                                        [
+                                            "",
+                                            "プレイリストコメント:",
+                                            playlist_header_comment.strip(),
+                                        ]
+                                    )
+                                playlist_description = "\n".join(description_lines)
+
                                 playlist_id = ytmusic.create_playlist(
                                     playlist_name,
-                                    f"曲調おすすめプレイリスト検索結果 ({len(video_ids)}曲)",
+                                    playlist_description,
                                     privacy="PUBLIC",
                                     video_ids=video_ids,
                                 )
+
+                                if not playlist_id:
+                                    st.error("❌ プレイリスト作成に失敗しました")
+                                    st.session_state.playlist_creating = False
+                                    st.stop()
 
                                 st.success(
                                     f"✅ プレイリスト作成完了！ ({success_count}/{len(chain_results)}曲)"
@@ -724,6 +695,28 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
                                 st.markdown(
                                     f"🔗 **プレイリストURL:** [{playlist_url}]({playlist_url})"
                                 )
+
+                                creator_sub = getattr(st.user, "sub", "")
+                                items = [
+                                    {
+                                        "seq": idx + 1,
+                                        "song_id": song_id,
+                                        "cosine_distance": float(distance),
+                                    }
+                                    for idx, (song_id, distance, _) in enumerate(
+                                        chain_results
+                                    )
+                                ]
+                                saved = playlist_db.save_playlist_result(
+                                    playlist_id=playlist_id,
+                                    playlist_name=playlist_name,
+                                    playlist_url=playlist_url,
+                                    creator_sub=creator_sub,
+                                    items=items,
+                                    header_comment=playlist_header_comment,
+                                )
+                                if not saved:
+                                    st.warning("⚠️ プレイリストのDB保存に失敗しました")
                             else:
                                 st.error("❌ 曲が見つかりませんでした")
 

@@ -172,10 +172,41 @@ def list_playlist_comments(
                 "playlist_id": row.playlist_id,
                 "user_sub": row.user_sub,
                 "comment": row.comment,
+                "is_deleted": row.is_deleted,
                 "created_at": row.created_at.isoformat(),
             }
             for row in rows
         ]
+
+
+def delete_playlist_comment(
+    comment_id: int,
+    user_sub: str,
+) -> bool:
+    """
+    プレイリストコメントを削除する（論理削除）
+
+    Args:
+        comment_id: コメントID
+        user_sub: 削除操作を行うユーザーのSub
+
+    Returns:
+        削除に成功した場合True
+    """
+    if not comment_id or not user_sub:
+        return False
+
+    with get_session() as session:
+        comment = session.execute(
+            select(PlaylistComment).where(PlaylistComment.id == comment_id)
+        ).scalar_one_or_none()
+
+        if not comment or comment.user_sub != user_sub:
+            return False
+
+        comment.is_deleted = True
+
+    return True
 
 
 def get_playlist_items(playlist_id: str) -> list[dict]:

@@ -153,9 +153,51 @@ for idx, header in enumerate(headers, 1):
             for comment in comments:
                 comment_email = comment_email_map.get(comment["user_sub"], "-")
                 comment_time = format_created_at(comment["created_at"], timezone)
-                with st.chat_message("user"):
-                    st.markdown(f"**{comment_email}** · {comment_time}")
-                    st.write(comment["comment"])
+                is_creator = comment["user_sub"] == creator_sub
+                is_own_comment = comment["user_sub"] == user_sub
+                is_deleted = comment.get("is_deleted", False)
+
+                # 作成者のコメントは異なる背景色を使用
+                background_color = "#e8f4f8" if is_creator else "#f0f0f0"
+
+                # コメント内容を決定
+                if is_deleted:
+                    comment_text = "(削除されました)"
+                    comment_display = f'<div style="font-style: italic; color: #999;">{comment_text}</div>'
+                else:
+                    comment_display = html.escape(comment["comment"]).replace("\n", "<br>")
+
+                # カード形式でコメントを表示
+                st.markdown(
+                    f"""
+                    <div style="
+                        background-color: {background_color};
+                        padding: 12px;
+                        border-radius: 8px;
+                        margin-bottom: 10px;
+                        border-left: 4px solid {'#4CAF50' if is_creator else '#2196F3'};
+                    ">
+                        <div style="font-weight: bold; margin-bottom: 4px;">
+                            {html.escape(comment_email)} · <span style="font-weight: normal; color: #666;">{comment_time}</span>
+                        </div>
+                        <div>{comment_display}</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+                # 削除ボタン（自分のコメントかつ未削除の場合のみ表示）
+                if is_own_comment and not is_deleted:
+                    delete_key = f"delete_comment_{comment['id']}"
+                    if st.button("削除", key=delete_key, type="secondary"):
+                        if playlist_db.delete_playlist_comment(
+                            comment_id=comment["id"],
+                            user_sub=user_sub,
+                        ):
+                            st.success("コメントを削除しました")
+                            st.rerun()
+                        else:
+                            st.error("コメントの削除に失敗しました")
         else:
             st.info("コメントはまだありません")
 

@@ -44,25 +44,31 @@ class YTMusicManager:
         """
         if access_token:
             # Streamlit OAuth経由のアクセストークンを使用
-            # アクセストークンをoauth.json形式に変換して一時ファイルに保存
             oauth_data = {
                 "access_token": access_token,
                 "token_type": "Bearer",
-                # ytmusicapi は refresh_token なしでも動作可能
-                # アクセストークンが期限切れの場合は、ユーザーに再ログインを促す
+                # Note: refresh_token はStreamlitのOIDCでは提供されないため、
+                # アクセストークンが期限切れになった場合はユーザーに再ログインを促す
             }
-            with tempfile.NamedTemporaryFile(
-                mode="w", suffix=".json", delete=False, encoding="utf-8"
-            ) as tmp:
-                json.dump(oauth_data, tmp)
-                tmp.flush()
-                tmp_path = tmp.name
-
+            
+            # セキュアな一時ファイルを作成（ファイル権限を制限）
+            tmp_fd, tmp_path = tempfile.mkstemp(suffix=".json", text=True)
             try:
+                # ファイル権限を所有者のみ読み書き可能に設定
+                os.chmod(tmp_path, 0o600)
+                # ファイルディスクリプタを使用して書き込み
+                with os.fdopen(tmp_fd, 'w', encoding='utf-8') as f:
+                    json.dump(oauth_data, f)
+                    f.flush()
+                    os.fsync(f.fileno())
+                
                 self.yt = YTMusic(tmp_path)
             finally:
-                if os.path.exists(tmp_path):
+                # 確実に一時ファイルを削除
+                try:
                     os.unlink(tmp_path)
+                except OSError:
+                    pass
         elif oauth_dict:
             # ユーザー固有のOAuth認証を使用（後方互換性）
             # 一時ファイルにOAuth情報を書き込んでYTMusicに渡す

@@ -146,13 +146,28 @@ for idx, header in enumerate(headers, 1):
             unsafe_allow_html=True,
         )
 
-    with st.expander("コメント", expanded=False):
-        comments = playlist_db.list_playlist_comments(playlist_id, limit=200)
-        comment_user_subs = [comment["user_sub"] for comment in comments]
+    # Fetch all comments for count and pagination
+    all_comments = playlist_db.list_playlist_comments(playlist_id, limit=500)
+    comment_count = len(all_comments)
+    
+    with st.expander(f"コメント ({comment_count}件)", expanded=False):
+        # Initialize session state for comments pagination per playlist
+        comments_per_page = 20
+        comments_state_key = f"comments_to_show_{playlist_id}"
+        
+        # Initialize or reset session state for this playlist
+        if comments_state_key not in st.session_state:
+            st.session_state[comments_state_key] = comments_per_page
+        
+        # Calculate display range
+        end_idx = min(st.session_state[comments_state_key], len(all_comments))
+        displayed_comments = all_comments[0:end_idx]
+        
+        comment_user_subs = [comment["user_sub"] for comment in displayed_comments]
         comment_display_name_map = get_display_names_by_subs(comment_user_subs)
 
-        if comments:
-            for comment in comments:
+        if displayed_comments:
+            for comment in displayed_comments:
                 comment_display_name = comment_display_name_map.get(
                     comment["user_sub"], "-"
                 )
@@ -160,6 +175,20 @@ for idx, header in enumerate(headers, 1):
                 with st.chat_message("user"):
                     st.markdown(f"**{comment_display_name}** · {comment_time}")
                     st.write(comment["comment"])
+            
+            # Load more button if there are more comments
+            if end_idx < len(all_comments):
+                remaining = len(all_comments) - end_idx
+                cols = st.columns([1, 2, 1])
+                with cols[1]:
+                    if st.button(
+                        f"📖 さらに{min(comments_per_page, remaining)}件読み込む",
+                        type="primary",
+                        use_container_width=True,
+                        key=f"load_more_comments_{playlist_id}",
+                    ):
+                        st.session_state[comments_state_key] += comments_per_page
+                        st.rerun()
         else:
             st.info("コメントはまだありません")
 

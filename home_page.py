@@ -10,6 +10,8 @@ from core.db_manager import SongVectorDB
 from core.channel_db import ChannelDB
 from core.song_queue_db import SongQueueDB
 from core.feature_statistics import FeatureStatistics
+from core.playlist_db import get_top_selected_songs, get_top_selected_artists
+from core.song_metadata_db import get_total_processed_data_size_gb, get_songs
 
 st.title("🎵 楽曲レコメンドシステム")
 
@@ -87,6 +89,74 @@ with col4:
         value=f"{queue_counts['processed']:,}",
         help="YouTubeから処理完了した楽曲の数",
     )
+
+# 処理済みデータの合計サイズを表示
+try:
+    total_size_gb = get_total_processed_data_size_gb()
+    st.metric(
+        label="💾 処理済みデータ合計サイズ",
+        value=f"{total_size_gb:.2f} GB",
+        help="登録されている全楽曲ファイルの合計サイズ（GB単位）",
+    )
+except Exception as e:
+    st.warning(f"データサイズの取得に失敗しました: {e}")
+
+# プレイリスト統計情報
+st.subheader("🎵 プレイリスト統計")
+
+try:
+    # TOP30楽曲とアーティストを取得
+    top_songs = get_top_selected_songs(limit=30)
+    top_artists = get_top_selected_artists(limit=30)
+
+    if top_songs or top_artists:
+        col_songs, col_artists = st.columns(2)
+
+        with col_songs:
+            st.markdown("### 🎵 よく選ばれている曲 TOP30")
+            if top_songs:
+                # song_idから楽曲情報を取得
+                song_ids = [item["song_id"] for item in top_songs]
+                songs_info = get_songs(song_ids)
+                songs_dict = {song["song_id"]: song for song in songs_info}
+
+                # データフレーム作成
+                songs_data = []
+                for idx, item in enumerate(top_songs, 1):
+                    song = songs_dict.get(item["song_id"], {})
+                    songs_data.append(
+                        {
+                            "順位": idx,
+                            "曲名": song.get("song_title", item["song_id"]),
+                            "アーティスト": song.get("artist_name", ""),
+                            "選択回数": item["count"],
+                        }
+                    )
+                df_songs = pd.DataFrame(songs_data)
+                st.dataframe(df_songs, hide_index=True, use_container_width=True, height=400)
+            else:
+                st.info("プレイリストデータがまだありません")
+
+        with col_artists:
+            st.markdown("### 🎤 よく選ばれているアーティスト TOP30")
+            if top_artists:
+                artists_data = []
+                for idx, item in enumerate(top_artists, 1):
+                    artists_data.append(
+                        {
+                            "順位": idx,
+                            "アーティスト": item["artist_name"],
+                            "選択回数": item["count"],
+                        }
+                    )
+                df_artists = pd.DataFrame(artists_data)
+                st.dataframe(df_artists, hide_index=True, use_container_width=True, height=400)
+            else:
+                st.info("アーティストデータがまだありません")
+    else:
+        st.info("プレイリストがまだ作成されていません")
+except Exception as e:
+    st.warning(f"プレイリスト統計の取得に失敗しました: {e}")
 
 # データベース詳細情報（展開可能）
 with st.expander("🔍 データベース詳細情報", expanded=True):

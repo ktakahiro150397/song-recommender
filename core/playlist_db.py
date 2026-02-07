@@ -234,6 +234,8 @@ def get_top_selected_songs(limit: int = 30) -> list[dict]:
 def get_top_selected_artists(limit: int = 30) -> list[dict]:
     """
     プレイリストで最も選ばれているアーティストのTOP N を取得する
+    
+    空文字列のアーティスト名は除外されます（アーティスト情報が不明な曲を除くため）
 
     Args:
         limit: 取得件数（デフォルト: 30）

@@ -498,7 +498,9 @@ def get_total_processed_data_size_gb() -> float:
     """
     from sqlalchemy import func
 
+    MB_TO_GB_FACTOR = 1024.0
+
     with get_session() as session:
         stmt = select(func.sum(Song.file_size_mb)).select_from(Song)
         total_mb = session.scalar(stmt) or 0.0
-        return total_mb / 1024.0  # MBからGBに変換
+        return total_mb / MB_TO_GB_FACTOR  # MBからGBに変換

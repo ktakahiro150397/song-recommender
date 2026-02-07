@@ -135,7 +135,7 @@ try:
                 df_songs = pd.DataFrame(songs_data)
                 st.dataframe(df_songs, hide_index=True, use_container_width=True, height=400)
             else:
-                st.info("プレイリストデータがまだありません")
+                st.info("プレイリストに曲がまだありません")
 
         with col_artists:
             st.markdown("### 🎤 よく選ばれているアーティスト TOP30")

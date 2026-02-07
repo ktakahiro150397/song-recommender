@@ -32,9 +32,18 @@ user_email = getattr(st.user, "email", "")
 
 # フィルター
 st.markdown("### 🔍 フィルター")
+
+# セッション状態の初期化（デフォルトはTrue）
+if "playlist_only_mine" not in st.session_state:
+    st.session_state.playlist_only_mine = True
+
 col_filter, col_keyword = st.columns([1, 2])
 with col_filter:
-    only_mine = st.checkbox("自分のプレイリストのみ", value=True)
+    only_mine = st.checkbox(
+        "自分のプレイリストのみ",
+        value=st.session_state.playlist_only_mine,
+        key="playlist_only_mine"
+    )
 with col_keyword:
     keyword = st.text_input(
         "プレイリスト名またはIDで検索",

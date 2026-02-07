@@ -4,6 +4,11 @@
 
 使い方:
     uv run python add_user_ytmusic_auth_table.py
+    
+注意:
+    - このスクリプトは初回のみ実行してください
+    - データベース接続情報は .env ファイルから読み込まれます
+    - 既にテーブルが存在する場合はスキップされます
 """
 
 from core.database import engine, init_database
@@ -33,9 +38,16 @@ def main():
         print("  - updated_at (DATETIME)")
         print()
         print("マイグレーション完了！")
+        print()
+        print("次のステップ:")
+        print("1. アプリにログイン")
+        print("2. ユーザー設定ページでYouTube Music認証を設定")
+        print("3. プレイリスト作成機能を使用")
         
     except Exception as e:
         print(f"❌ エラーが発生しました: {e}")
+        import traceback
+        traceback.print_exc()
         return 1
 
     return 0

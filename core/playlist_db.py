@@ -77,7 +77,7 @@ def list_playlist_headers(
     limit: int = 200,
 ) -> list[dict]:
     """
-    プレイリストのヘッダー一覧を取得する
+    プレイリストのヘッダー一覧を取得する（削除済みは除外）
 
     Args:
         creator_sub: 作成者のユーザーSubでフィルタ
@@ -88,7 +88,7 @@ def list_playlist_headers(
         プレイリストヘッダーの辞書リスト
     """
     with get_session() as session:
-        stmt = select(PlaylistHeader).order_by(PlaylistHeader.created_at.desc())
+        stmt = select(PlaylistHeader).where(PlaylistHeader.deleted_at.is_(None)).order_by(PlaylistHeader.created_at.desc())
         if creator_sub:
             stmt = stmt.where(PlaylistHeader.creator_sub == creator_sub)
         if keyword:
@@ -210,7 +210,7 @@ def get_playlist_items(playlist_id: str) -> list[dict]:
 
 def delete_playlist(playlist_id: str, user_sub: str) -> bool:
     """
-    プレイリストを削除する（自分が作成したもののみ）
+    プレイリストを削除する（論理削除、自分が作成したもののみ）
 
     Args:
         playlist_id: YouTubeプレイリストID
@@ -236,9 +236,11 @@ def delete_playlist(playlist_id: str, user_sub: str) -> bool:
             # 作成者以外は削除できない
             return False
 
-        # プレイリストヘッダーを削除（カスケードでitems, commentsも削除される）
-        session.execute(
-            delete(PlaylistHeader).where(PlaylistHeader.playlist_id == playlist_id)
-        )
+        if header.deleted_at is not None:
+            # 既に削除済み
+            return False
+
+        # 論理削除: deleted_atに現在時刻を設定
+        header.deleted_at = datetime.now()
 
     return True

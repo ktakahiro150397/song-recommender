@@ -4,7 +4,7 @@
 
 使い方:
     uv run add_user_ytmusic_auth_table.py
-    
+
 注意:
     - このスクリプトは初回のみ実行してください
     - データベース接続情報は .env ファイルから読み込まれます

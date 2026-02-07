@@ -21,6 +21,7 @@ from create_playlist_from_chain import (
     BROWSER_FILE,
 )
 from core.ytmusic_manager import YTMusicManager
+from core.user_ytmusic_auth import get_user_oauth, has_user_oauth
 
 # ========== 設定 ==========
 from config import DB_CONFIGS
@@ -602,15 +603,20 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
 
             # プレイリスト作成中の場合
             if st.session_state.playlist_creating:
-                if not Path(BROWSER_FILE).exists():
-                    st.error(f"❌ {BROWSER_FILE} が見つかりません")
+                # ユーザーのOAuth認証情報を取得
+                user_sub = getattr(st.user, "sub", "")
+                user_oauth = get_user_oauth(user_sub) if user_sub else None
+                
+                if not user_oauth:
+                    st.error("❌ YouTube Music 認証が設定されていません")
+                    st.info("ユーザー設定ページでYouTube Music認証を設定してください")
                     st.session_state.playlist_creating = False
                 else:
                     with st.spinner(
                         "🎵 プレイリスト作成中...YouTube Musicで曲を検索しています"
                     ):
                         try:
-                            ytmusic = YTMusicManager(browser_file=BROWSER_FILE)
+                            ytmusic = YTMusicManager(oauth_dict=user_oauth)
 
                             # 検索＋プレイリスト作成
                             success_count = 0

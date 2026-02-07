@@ -7,6 +7,8 @@ from typing import Literal
 from ytmusicapi import YTMusic, OAuthCredentials, setup
 import json
 import time
+import tempfile
+import os
 
 
 def load_secrets(secrets_file: str = "secrets.json") -> dict:
@@ -29,17 +31,34 @@ class YTMusicManager:
     def __init__(
         self,
         browser_file: str = "browser.json",
+        oauth_dict: dict | None = None,
     ):
         """
         初期化
 
         Args:
-            auth_file: OAuth認証ファイルのパス
-            secrets_file: クライアントID/シークレットが含まれるJSONファイルのパス
+            browser_file: ブラウザ認証ファイルのパス（後方互換性のため保持）
+            oauth_dict: ユーザー固有のOAuth認証情報（辞書形式）
         """
+        if oauth_dict:
+            # ユーザー固有のOAuth認証を使用
+            # 一時ファイルにOAuth情報を書き込んでYTMusicに渡す
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".json", delete=False, encoding="utf-8"
+            ) as tmp:
+                json.dump(oauth_dict, tmp)
+                tmp_path = tmp.name
 
-        print("Using browser-based authentication")
-        self.yt = YTMusic(browser_file)
+            try:
+                self.yt = YTMusic(tmp_path)
+            finally:
+                # 一時ファイルを削除
+                if os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
+        else:
+            # 後方互換性: browser.json を使用（レガシー）
+            print("Using browser-based authentication (legacy mode)")
+            self.yt = YTMusic(browser_file)
 
     def get_library_playlists(self) -> list[dict]:
         """

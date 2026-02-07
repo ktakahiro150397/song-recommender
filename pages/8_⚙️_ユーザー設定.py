@@ -3,15 +3,8 @@
 """
 
 import streamlit as st
-import json
 
 from core.user_db import get_user_alias, update_user_alias
-from core.user_ytmusic_auth import (
-    has_user_oauth,
-    get_user_oauth,
-    save_user_oauth,
-    delete_user_oauth,
-)
 
 
 st.set_page_config(
@@ -89,67 +82,36 @@ if submitted:
 st.markdown("---")
 
 # YouTube Music 認証セクション
-st.markdown("### 🎵 YouTube Music 認証")
-st.markdown(
-    "プレイリストを自分のYouTube Musicアカウントに作成するには、YouTube Music APIの認証が必要です。"
-)
+st.markdown("### 🎵 YouTube Music 権限")
 
-# 認証状態を確認
-auth_status = has_user_oauth(user_sub)
+# アクセストークンの確認
+access_token = st.user.get("access_token") if st.user else None
 
-if auth_status:
-    st.success("✅ YouTube Music 認証済み")
-    st.info("あなたのYouTube Musicアカウントでプレイリストを作成できます。")
-
-    if st.button("🗑️ 認証を解除", type="secondary"):
-        if delete_user_oauth(user_sub):
-            st.success("認証を解除しました")
-            st.rerun()
-        else:
-            st.error("認証の解除に失敗しました")
+if access_token:
+    st.success("✅ YouTube Music の権限が付与されています")
+    st.info("プレイリストを自分のYouTube Musicアカウントに作成できます。")
 else:
-    st.warning("⚠️ YouTube Music 認証が未設定です")
+    st.warning("⚠️ YouTube Music の権限が不足しています")
     st.info(
         """
-        **認証を設定するには:**
+        **プレイリストを作成するには:**
         
-        1. YouTube Music認証ファイル（oauth.json）を取得してください
-        2. 下記のファイルアップロードエリアにアップロードしてください
+        YouTube Music API の権限が必要です。一度ログアウトして、再度ログインしてください。
         
-        詳しい手順は [YouTube Music OAuth 設定ガイド](https://github.com/ktakahiro150397/song-recommender/blob/main/YOUTUBE_OAUTH_SETUP.md) を参照してください。
+        **管理者の方へ:**
+        `.streamlit/secrets.toml` に以下の設定が必要です：
+        
+        ```toml
+        [auth]
+        expose_tokens = ["access", "id"]
+        
+        [auth.google]
+        client_kwargs = { scope = "openid profile email https://www.googleapis.com/auth/youtube" }
+        ```
+        
+        また、Google Cloud Console で YouTube Data API v3 を有効化してください。
         """
     )
-
-    uploaded_file = st.file_uploader(
-        "YouTube Music 認証ファイル (oauth.json)",
-        type=["json"],
-        help="ytmusicapiで生成したoauth.jsonファイルをアップロードしてください",
-    )
-
-    if uploaded_file is not None:
-        try:
-            # JSONファイルを読み込み
-            oauth_data = json.load(uploaded_file)
-
-            # 必要なキーが含まれているか確認
-            required_keys = ["access_token", "refresh_token", "token_type"]
-            if not all(key in oauth_data for key in required_keys):
-                st.error(
-                    "❌ 無効なOAuthファイルです。必要なキー（access_token, refresh_token, token_type）が含まれていません。"
-                )
-            else:
-                # OAuth情報を保存
-                oauth_json_str = json.dumps(oauth_data)
-                if save_user_oauth(user_sub, oauth_json_str):
-                    st.success("✅ YouTube Music 認証を設定しました")
-                    st.balloons()
-                    st.rerun()
-                else:
-                    st.error("❌ 認証の保存に失敗しました")
-        except json.JSONDecodeError:
-            st.error("❌ JSONファイルの形式が正しくありません")
-        except Exception as e:
-            st.error(f"❌ エラーが発生しました: {str(e)}")
 
 st.markdown("---")
 st.markdown("### 💡 ヒント")
@@ -158,6 +120,7 @@ st.info(
 - 表示名を設定すると、プレイリスト履歴やコメントでメールアドレスの代わりに表示されます
 - 表示名を空にすると、メールアドレスが表示されるようになります
 - 表示名は後からいつでも変更できます
-- YouTube Music 認証を設定すると、プレイリストがあなたのアカウントに作成されます
+- YouTube Music の権限はログイン時に自動的に付与されます（管理者が設定済みの場合）
 """
 )
+

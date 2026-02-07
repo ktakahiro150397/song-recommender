@@ -32,6 +32,7 @@ class YTMusicManager:
         self,
         browser_file: str = "browser.json",
         oauth_dict: dict | None = None,
+        access_token: str | None = None,
     ):
         """
         初期化
@@ -39,9 +40,31 @@ class YTMusicManager:
         Args:
             browser_file: ブラウザ認証ファイルのパス（後方互換性のため保持）
             oauth_dict: ユーザー固有のOAuth認証情報（辞書形式）
+            access_token: Streamlitの st.user から取得したアクセストークン
         """
-        if oauth_dict:
-            # ユーザー固有のOAuth認証を使用
+        if access_token:
+            # Streamlit OAuth経由のアクセストークンを使用
+            # アクセストークンをoauth.json形式に変換して一時ファイルに保存
+            oauth_data = {
+                "access_token": access_token,
+                "token_type": "Bearer",
+                # ytmusicapi は refresh_token なしでも動作可能
+                # アクセストークンが期限切れの場合は、ユーザーに再ログインを促す
+            }
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".json", delete=False, encoding="utf-8"
+            ) as tmp:
+                json.dump(oauth_data, tmp)
+                tmp.flush()
+                tmp_path = tmp.name
+
+            try:
+                self.yt = YTMusic(tmp_path)
+            finally:
+                if os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
+        elif oauth_dict:
+            # ユーザー固有のOAuth認証を使用（後方互換性）
             # 一時ファイルにOAuth情報を書き込んでYTMusicに渡す
             with tempfile.NamedTemporaryFile(
                 mode="w", suffix=".json", delete=False, encoding="utf-8"

@@ -47,6 +47,7 @@ class YTMusicManager:
                 mode="w", suffix=".json", delete=False, encoding="utf-8"
             ) as tmp:
                 json.dump(oauth_dict, tmp)
+                tmp.flush()  # データが確実に書き込まれるようにフラッシュ
                 tmp_path = tmp.name
 
             try:

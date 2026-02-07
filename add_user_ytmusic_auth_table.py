@@ -3,7 +3,7 @@
 ユーザーごとのYouTube Music OAuth認証情報テーブルを追加するマイグレーションスクリプト
 
 使い方:
-    uv run python add_user_ytmusic_auth_table.py
+    uv run add_user_ytmusic_auth_table.py
     
 注意:
     - このスクリプトは初回のみ実行してください

@@ -33,24 +33,23 @@ user_email = getattr(st.user, "email", "")
 # フィルター
 st.markdown("### 🔍 フィルター")
 
-# チェックボックスの状態をquery_paramsから復元（デフォルトはtrue）
-only_mine_param = st.query_params.get("only_mine", "true")
-only_mine_initial = only_mine_param.lower() == "true"
+# セッション状態の初期化（デフォルトはTrue）
+if "playlist_only_mine" not in st.session_state:
+    st.session_state.playlist_only_mine = True
 
 col_filter, col_keyword = st.columns([1, 2])
 with col_filter:
-    only_mine = st.checkbox("自分のプレイリストのみ", value=only_mine_initial)
+    only_mine = st.checkbox(
+        "自分のプレイリストのみ",
+        value=st.session_state.playlist_only_mine,
+        key="playlist_only_mine"
+    )
 with col_keyword:
     keyword = st.text_input(
         "プレイリスト名またはIDで検索",
         placeholder="キーワードを入力...",
         label_visibility="collapsed",
     )
-
-# チェックボックスの状態が変わったらquery_paramsを更新
-if only_mine != only_mine_initial:
-    st.query_params["only_mine"] = "true" if only_mine else "false"
-    st.rerun()
 
 query_timezone = st.query_params.get("tz", "")
 if not query_timezone:

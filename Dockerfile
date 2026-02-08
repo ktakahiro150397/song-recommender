@@ -33,7 +33,7 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 COPY --from=builder /app/.venv /app/.venv
 
 # アプリケーションコードをコピー
-COPY app.py home_page.py config.py create_playlist_from_chain.py ./
+COPY app.py config.py create_playlist_from_chain.py ./
 COPY core/ ./core/
 COPY pages/ ./pages/
 COPY .streamlit/ ./.streamlit/

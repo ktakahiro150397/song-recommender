@@ -30,7 +30,7 @@ upsert_user_identity(
 
 # ページ定義
 pages = [
-    st.Page("home_page.py", title="TOP", icon="🏠", default=True),
+    st.Page("pages/home_page.py", title="TOP", icon="🏠", default=True),
     st.Page("pages/1_🎵_楽曲検索.py", title="楽曲検索", icon="🎵"),
     st.Page("pages/5_📺_YouTube登録.py", title="YouTube登録", icon="📺"),
     st.Page(

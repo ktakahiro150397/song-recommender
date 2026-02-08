@@ -508,6 +508,14 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
                 key="source_dir_filter_selected",
             )
 
+        # BPMフィルタオプション
+        use_bpm_filter = st.checkbox(
+            "選択した曲以上のBPMのみで作成",
+            value=False,
+            help="選択した曲のBPM以上の曲のみでプレイリストを作成します",
+            key="use_bpm_filter",
+        )
+
         if st.button("🔍 連鎖検索を実行", type="primary", key="chain_search_button"):
             with st.spinner("連鎖検索中..."):
                 # 全てのDBsを初期化（検索には全てのDBを使用）
@@ -523,6 +531,16 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
 
                 dbs = [db_full, db_balance, db_minimal]
 
+                # BPMフィルタが有効な場合、選択曲のBPMを取得
+                min_bpm = None
+                if use_bpm_filter:
+                    selected_song_metadata = song_metadata_db.get_song(selected_song)
+                    if selected_song_metadata and selected_song_metadata.get("bpm"):
+                        min_bpm = selected_song_metadata["bpm"]
+                        st.info(f"🎵 選択した曲のBPM: {min_bpm:.1f} BPM以上でフィルタリング")
+                    else:
+                        st.warning("⚠️ 選択した曲のBPM情報がないため、BPMフィルタは無効です")
+
                 # 既存の関数を使用
                 chain_results = chain_search_to_list(
                     start_filename=selected_song,
@@ -533,6 +551,7 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
                         if source_dir_filter_selected
                         else None
                     ),
+                    min_bpm=min_bpm,
                 )
 
                 # セッション状態に保存

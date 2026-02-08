@@ -160,6 +160,7 @@ def chain_search_to_list(
     dbs: list[SongVectorDB],
     n_songs: int = 30,
     artist_filter: str | list[str] | None = None,
+    min_bpm: float | None = None,
 ) -> list[tuple[str, float, dict]]:
     """
     1曲から始めて類似曲を連鎖的に辿り、結果をリストで返す
@@ -169,6 +170,7 @@ def chain_search_to_list(
         dbs: 使用するベクトルDBのリスト
         n_songs: 取得する曲数
         artist_filter: source_dirでフィルタリング（複数可）
+        min_bpm: 最小BPM（指定された場合、この値以上のBPMの曲のみ選択）
 
     Returns:
         [(song_id, distance, metadata), ...] のリスト（開始曲を含む）
@@ -194,6 +196,8 @@ def chain_search_to_list(
     if source_dir_filters:
         print(f"   登録元フィルタ: {', '.join(source_dir_filters)}")
         print(f"   対象ディレクトリ: {len(matched_dirs)}個")
+    if min_bpm is not None:
+        print(f"   最小BPMフィルタ: {min_bpm:.1f} BPM以上")
     print(f"{'='*60}")
 
     # 開始曲の存在確認（全てのDBで確認）
@@ -218,6 +222,7 @@ def chain_search_to_list(
             "youtube_id": start_song.get("youtube_id", ""),
             "file_extension": start_song.get("file_extension", ""),
             "file_size_mb": start_song.get("file_size_mb", 0.0),
+            "bpm": start_song.get("bpm"),
             "registered_at": start_song.get("registered_at", ""),
             "excluded_from_search": start_song.get("excluded_from_search", False),
         }
@@ -274,6 +279,13 @@ def chain_search_to_list(
 
             for song_id, distance in zip(candidate_ids, candidate_distances):
                 metadata = metadata_dict.get(song_id, {})
+
+                # BPMフィルタを適用（min_bpmが指定されている場合）
+                if min_bpm is not None:
+                    song_bpm = metadata.get("bpm")
+                    # BPMが未設定、またはmin_bpm未満の場合はスキップ
+                    if song_bpm is None or song_bpm < min_bpm:
+                        continue
 
                 if song_id not in visited and distance < best_distance:
                     best_song = song_id

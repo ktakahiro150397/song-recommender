@@ -77,7 +77,7 @@ def list_playlist_headers(
     limit: int = 200,
 ) -> list[dict]:
     """
-    プレイリストのヘッダー一覧を取得する
+    プレイリストのヘッダー一覧を取得する（削除済みは除外）
 
     Args:
         creator_sub: 作成者のユーザーSubでフィルタ
@@ -88,7 +88,7 @@ def list_playlist_headers(
         プレイリストヘッダーの辞書リスト
     """
     with get_session() as session:
-        stmt = select(PlaylistHeader).order_by(PlaylistHeader.created_at.desc())
+        stmt = select(PlaylistHeader).where(PlaylistHeader.deleted_at.is_(None)).order_by(PlaylistHeader.created_at.desc())
         if creator_sub:
             stmt = stmt.where(PlaylistHeader.creator_sub == creator_sub)
         if keyword:
@@ -172,10 +172,42 @@ def list_playlist_comments(
                 "playlist_id": row.playlist_id,
                 "user_sub": row.user_sub,
                 "comment": row.comment,
+                "is_deleted": row.is_deleted,
                 "created_at": row.created_at.isoformat(),
             }
             for row in rows
         ]
+
+
+def delete_playlist_comment(
+    comment_id: int,
+    user_sub: str,
+) -> bool:
+    """
+    プレイリストコメントを削除する（論理削除）
+
+    Args:
+        comment_id: コメントID
+        user_sub: 削除操作を行うユーザーのSub
+
+    Returns:
+        削除に成功した場合True
+    """
+    if not comment_id or not user_sub:
+        return False
+
+    with get_session() as session:
+        comment = session.execute(
+            select(PlaylistComment).where(PlaylistComment.id == comment_id)
+        ).scalar_one_or_none()
+
+        if not comment or comment.user_sub != user_sub:
+            return False
+
+        comment.is_deleted = True
+        # get_session() コンテキストマネージャが自動的にコミットします
+
+    return True
 
 
 def get_playlist_items(playlist_id: str) -> list[dict]:
@@ -206,3 +238,41 @@ def get_playlist_items(playlist_id: str) -> list[dict]:
             }
             for row in rows
         ]
+
+
+def delete_playlist(playlist_id: str, user_sub: str) -> bool:
+    """
+    プレイリストを削除する（論理削除、自分が作成したもののみ）
+
+    Args:
+        playlist_id: YouTubeプレイリストID
+        user_sub: 削除を実行するユーザーのSub
+
+    Returns:
+        削除成功の場合True、それ以外False
+    """
+    if not playlist_id or not user_sub:
+        return False
+
+    with get_session() as session:
+        # プレイリストヘッダーを取得し、作成者を確認
+        header = session.execute(
+            select(PlaylistHeader).where(PlaylistHeader.playlist_id == playlist_id)
+        ).scalar_one_or_none()
+
+        if not header:
+            # プレイリストが存在しない
+            return False
+
+        if header.creator_sub != user_sub:
+            # 作成者以外は削除できない
+            return False
+
+        if header.deleted_at is not None:
+            # 既に削除済み
+            return False
+
+        # 論理削除: deleted_atに現在時刻を設定
+        header.deleted_at = datetime.now()
+
+    return True

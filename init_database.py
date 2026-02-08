@@ -99,6 +99,7 @@ def migrate_metadata_from_chromadb():
                             youtube_id=metadata.get("youtube_id", ""),
                             file_extension=metadata.get("file_extension", ""),
                             file_size_mb=metadata.get("file_size_mb", 0.0),
+                            bpm=metadata.get("bpm"),
                             registered_at=(
                                 datetime.fromisoformat(metadata["registered_at"])
                                 if metadata.get("registered_at")

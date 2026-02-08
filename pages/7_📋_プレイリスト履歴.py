@@ -26,6 +26,13 @@ st.set_page_config(
 st.title("📋 作成済みプレイリスト履歴")
 st.markdown("---")
 
+if "delete_confirm_id" not in st.session_state:
+    st.session_state.delete_confirm_id = ""
+
+delete_notice = st.session_state.pop("delete_notice", "")
+if delete_notice:
+    st.toast(delete_notice)
+
 
 user_sub = getattr(st.user, "sub", "")
 user_email = getattr(st.user, "email", "")
@@ -139,6 +146,38 @@ for idx, header in enumerate(headers, 1):
     )
     st.dataframe(header_df, use_container_width=True, hide_index=True)
 
+    # 削除ボタン（作成者のみ表示）
+    if user_sub and creator_sub == user_sub:
+        delete_button_key = f"delete_playlist_{playlist_id}"
+        if st.session_state.delete_confirm_id == playlist_id:
+            st.warning("本当に削除しますか？この操作は取り消せません。")
+            col_confirm, col_cancel = st.columns(2)
+            with col_confirm:
+                if st.button(
+                    "削除を確定", key=f"confirm_{playlist_id}", type="primary"
+                ):
+                    if playlist_db.delete_playlist(playlist_id, user_sub):
+                        st.session_state["delete_notice"] = (
+                            f"プレイリスト「{playlist_name}」を削除しました"
+                        )
+                        st.session_state.delete_confirm_id = ""
+                        st.rerun()
+                    else:
+                        st.error("プレイリストの削除に失敗しました")
+            with col_cancel:
+                if st.button("キャンセル", key=f"cancel_{playlist_id}"):
+                    st.session_state.delete_confirm_id = ""
+                    st.rerun()
+        else:
+            if st.button(
+                "🗑️ このプレイリストを削除",
+                key=delete_button_key,
+                type="secondary",
+                help="このプレイリストを完全に削除します",
+            ):
+                st.session_state.delete_confirm_id = playlist_id
+                st.rerun()
+
     if header_comment:
         header_comment_html = html.escape(header_comment).replace("\n", "<br>")
         st.markdown(
@@ -149,20 +188,20 @@ for idx, header in enumerate(headers, 1):
     # Fetch all comments for count and pagination
     all_comments = playlist_db.list_playlist_comments(playlist_id, limit=500)
     comment_count = len(all_comments)
-    
+
     with st.expander(f"コメント ({comment_count}件)", expanded=False):
         # Initialize session state for comments pagination per playlist
         comments_per_page = 20
         comments_state_key = f"comments_to_show_{playlist_id}"
-        
+
         # Initialize or reset session state for this playlist
         if comments_state_key not in st.session_state:
             st.session_state[comments_state_key] = comments_per_page
-        
+
         # Calculate display range
         end_idx = min(st.session_state[comments_state_key], len(all_comments))
         displayed_comments = all_comments[0:end_idx]
-        
+
         comment_user_subs = [comment["user_sub"] for comment in displayed_comments]
         comment_display_name_map = get_display_names_by_subs(comment_user_subs)
 
@@ -175,7 +214,7 @@ for idx, header in enumerate(headers, 1):
                 with st.chat_message("user"):
                     st.markdown(f"**{comment_display_name}** · {comment_time}")
                     st.write(comment["comment"])
-            
+
             # Load more button if there are more comments
             if end_idx < len(all_comments):
                 remaining = len(all_comments) - end_idx
@@ -189,6 +228,53 @@ for idx, header in enumerate(headers, 1):
                     ):
                         st.session_state[comments_state_key] += comments_per_page
                         st.rerun()
+                is_creator = comment["user_sub"] == creator_sub
+                is_own_comment = comment["user_sub"] == user_sub
+                is_deleted = comment.get("is_deleted", False)
+
+                # 作成者のコメントは異なる背景色を使用
+                background_color = "#f5fffa" if is_creator else "#fafafa"
+
+                # コメント内容を決定
+                if is_deleted:
+                    comment_text = "(削除されました)"
+                    comment_display = f'<div style="font-style: italic; color: #999;">{comment_text}</div>'
+                else:
+                    comment_display = html.escape(comment["comment"]).replace(
+                        "\n", "<br>"
+                    )
+
+                # カード形式でコメントを表示
+                st.markdown(
+                    f"""
+                    <div style="
+                        background-color: {background_color};
+                        padding: 12px;
+                        border-radius: 8px;
+                        margin-bottom: 10px;
+                        border-left: 4px solid {'#4CAF50' if is_creator else '#2196F3'};
+                    ">
+                        <div style="font-weight: bold; margin-bottom: 4px;">
+                            {html.escape(comment_display_name)} · <span style="font-weight: normal; color: #666;">{comment_time}</span>
+                        </div>
+                        <div>{comment_display}</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+                # 削除ボタン（自分のコメントかつ未削除の場合のみ表示）
+                if is_own_comment and not is_deleted:
+                    delete_key = f"delete_comment_{comment['id']}"
+                    if st.button("削除", key=delete_key, type="secondary"):
+                        if playlist_db.delete_playlist_comment(
+                            comment_id=comment["id"],
+                            user_sub=user_sub,
+                        ):
+                            st.success("コメントを削除しました")
+                            st.rerun()
+                        else:
+                            st.error("コメントの削除に失敗しました")
         else:
             st.info("コメントはまだありません")
 

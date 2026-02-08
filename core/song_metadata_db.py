@@ -79,6 +79,7 @@ def get_song(song_id: str) -> dict | None:
                 "youtube_id": result.youtube_id,
                 "file_extension": result.file_extension,
                 "file_size_mb": result.file_size_mb,
+                "bpm": result.bpm,
                 "registered_at": result.registered_at.isoformat(),
                 "excluded_from_search": result.excluded_from_search,
             }

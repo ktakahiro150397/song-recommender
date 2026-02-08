@@ -1,6 +1,10 @@
 """
 連鎖検索結果からYouTube Musicプレイリストを作成するスクリプト
 
+注意:
+    このCLIスクリプトは後方互換性のため browser.json を使用します。
+    Webアプリでは、各ユーザーが自分のYouTube Music認証を設定できます。
+
 使い方:
     uv run create_playlist_from_chain.py "検索キーワード"
     uv run create_playlist_from_chain.py "検索キーワード" --count 30

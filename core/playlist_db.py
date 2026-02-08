@@ -299,6 +299,10 @@ def get_top_selected_songs(limit: int = 30) -> list[dict]:
             select(
                 PlaylistItem.song_id, func.count(PlaylistItem.song_id).label("count")
             )
+            .join(
+                PlaylistHeader, PlaylistItem.playlist_id == PlaylistHeader.playlist_id
+            )
+            .where(PlaylistHeader.deleted_at.is_(None))
             .group_by(PlaylistItem.song_id)
             .order_by(func.count(PlaylistItem.song_id).desc())
             .limit(limit)
@@ -327,6 +331,10 @@ def get_top_selected_artists(limit: int = 30) -> list[dict]:
         stmt = (
             select(Song.artist_name, func.count(PlaylistItem.song_id).label("count"))
             .join(Song, PlaylistItem.song_id == Song.song_id)
+            .join(
+                PlaylistHeader, PlaylistItem.playlist_id == PlaylistHeader.playlist_id
+            )
+            .where(PlaylistHeader.deleted_at.is_(None))
             .where(Song.artist_name != "")
             .group_by(Song.artist_name)
             .order_by(func.count(PlaylistItem.song_id).desc())

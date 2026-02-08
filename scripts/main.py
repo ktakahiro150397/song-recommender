@@ -8,10 +8,16 @@
 """
 
 import argparse
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from colorama import Fore, Style, init
+
 from core.db_manager import SongVectorDB
 from core import song_metadata_db
-import os
-from colorama import Fore, Style, init
 from config import DB_CONFIGS
 
 # Windows用初期化

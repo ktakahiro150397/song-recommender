@@ -92,7 +92,7 @@ def get_recently_added_songs(
                 "filename": song.filename,
                 "song_title": song.song_title,
                 "artist_name": song.artist_name,
-                "source_dir": song.source_dir,
+                "bpm": song.bpm,
                 "youtube_id": song.youtube_id,
                 "file_extension": song.file_extension,
                 "file_size_mb": song.file_size_mb,
@@ -141,7 +141,7 @@ def get_random_songs(db: SongVectorDB, limit: int = 50) -> list[tuple[str, dict]
                     "filename": song.filename,
                     "song_title": song.song_title,
                     "artist_name": song.artist_name,
-                    "source_dir": song.source_dir,
+                    "bpm": song.bpm,
                     "youtube_id": song.youtube_id,
                     "file_extension": song.file_extension,
                     "file_size_mb": song.file_size_mb,
@@ -276,7 +276,7 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
                     "No.": idx,
                     "ファイル名": song_id,
                     "アーティスト": metadata.get("artist_name", "") if metadata else "",
-                    "source_dir": metadata.get("source_dir", "") if metadata else "",
+                    "BPM": metadata.get("bpm", "") if metadata else "",
                     "registered_at": (
                         metadata.get("registered_at", "") if metadata else ""
                     ),
@@ -410,10 +410,8 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
                                     "Rank": rank,
                                     "ファイル名": song_id,
                                     "距離": f"{distance:.6f}",
-                                    "source_dir": (
-                                        metadata.get("source_dir", "")
-                                        if metadata
-                                        else ""
+                                    "BPM": (
+                                        metadata.get("bpm", "") if metadata else ""
                                     ),
                                     "registered_at": (
                                         metadata.get("registered_at", "")
@@ -562,10 +560,7 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
                             metadata.get("artist_name", "") if metadata else ""
                         ),
                         "距離": f"{distance:.6f}" if distance > 0 else "-",
-                        "source_dir": (
-                            metadata.get("source_dir", "") if metadata else ""
-                        ),
-                        "filename": metadata.get("filename", "") if metadata else "",
+                        "BPM": metadata.get("bpm", "") if metadata else "",
                     }
                 )
 

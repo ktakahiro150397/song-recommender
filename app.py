@@ -7,7 +7,7 @@
 
 import streamlit as st
 
-from core.user_db import upsert_user_identity
+from core.user_db import get_user_alias, upsert_user_identity
 
 st.set_page_config(
     page_title="楽曲レコメンドシステム",
@@ -30,7 +30,7 @@ upsert_user_identity(
 
 # ページ定義
 pages = [
-    st.Page("home_page.py", title="TOP", icon="🏠", default=True),
+    st.Page("pages/home_page.py", title="TOP", icon="🏠", default=True),
     st.Page("pages/1_🎵_楽曲検索.py", title="楽曲検索", icon="🎵"),
     st.Page("pages/5_📺_YouTube登録.py", title="YouTube登録", icon="📺"),
     st.Page(
@@ -52,10 +52,18 @@ pg = st.navigation(pages)
 
 if pg.title == "TOP":
     user_email = getattr(st.user, "email", "")
+    user_sub = getattr(st.user, "sub", "")
+    user_alias = get_user_alias(user_sub)
     with st.container(border=False):
         email_col, button_col = st.columns([6, 4])
         with email_col:
-            st.markdown(f"**{user_email}**" if user_email else "**ログイン中**")
+            if user_email:
+                if user_alias:
+                    st.markdown(f"**ログイン中：{user_alias} ({user_email})**")
+                else:
+                    st.markdown(f"**ログイン中：{user_email}**")
+            else:
+                st.markdown("**ログイン中**")
         with button_col:
             if st.button("ログアウト", use_container_width=True):
                 st.logout()

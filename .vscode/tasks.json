@@ -7,7 +7,7 @@
             "command": "uv",
             "args": [
                 "run",
-                "register_songs.py",
+                "scripts/register_songs.py",
                 "--parallel",
                 "${input:parallelMode}"
             ],
@@ -24,7 +24,7 @@
             "command": "uv",
             "args": [
                 "run",
-                "create_playlist_from_chain.py",
+                "scripts/create_playlist_from_chain.py",
                 "${input:playlistSearchKeyword}",
                 "--count",
                 "${input:playlistSongCount}",
@@ -44,7 +44,7 @@
             "command": "uv",
             "args": [
                 "run",
-                "main.py",
+                "scripts/main.py",
                 "${input:chainSearchKeyword}",
                 "--count",
                 "${input:chainSearchCount}"
@@ -62,7 +62,7 @@
             "command": "uv",
             "args": [
                 "run",
-                "main.py",
+                "scripts/main.py",
                 "--list",
                 "${input:listSearchKeyword}"
             ],
@@ -77,7 +77,7 @@
             "label": "Test YouTube Music Connection",
             "type": "shell",
             "command": "uv",
-            "args": ["run", "test_ytmusic.py", "--test"],
+            "args": ["run", "scripts/test_ytmusic.py", "--test"],
             "group": "test",
             "problemMatcher": [],
             "presentation": {
@@ -89,7 +89,7 @@
             "label": "Register Songs from YouTube Queue",
             "type": "shell",
             "command": "uv",
-            "args": ["run", "register_songs.py", "--youtube-queue"],
+            "args": ["run", "scripts/register_songs.py", "--youtube-queue"],
             "group": "build",
             "problemMatcher": [],
             "presentation": {
@@ -103,7 +103,7 @@
             "command": "uv",
             "args": [
                 "run",
-                "create_dl_script_from_yt.py",
+                "scripts/create_dl_script_from_yt.py",
                 "--batch",
                 "--output",
                 "${input:dlScriptOutputDir}",

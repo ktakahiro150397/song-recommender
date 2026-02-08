@@ -10,7 +10,12 @@ from core.db_manager import SongVectorDB
 from core.channel_db import ChannelDB
 from core.song_queue_db import SongQueueDB
 from core.feature_statistics import FeatureStatistics
-from core.playlist_db import get_top_selected_songs, get_top_selected_artists
+from core.playlist_db import (
+    get_top_selected_songs,
+    get_top_selected_artists,
+    get_top_selected_start_songs,
+    get_top_selected_start_songs_by_creator,
+)
 from core.song_metadata_db import get_total_processed_data_size_gb, get_songs
 
 st.title("🎵 楽曲レコメンドシステム")
@@ -27,7 +32,7 @@ st.markdown(
 """
 )
 
-st.info("📌 左側のサイドバーからページを選択してください")
+# st.info("📌 左側のサイドバーからページを選択してください")
 
 # DBの統計情報を表示
 st.subheader("📊 データベース統計")
@@ -107,9 +112,74 @@ st.subheader("🎵 プレイリスト統計")
 try:
     # TOP30楽曲とアーティストを取得
     top_songs = get_top_selected_songs(limit=30)
+    top_start_songs = get_top_selected_start_songs(limit=30)
     top_artists = get_top_selected_artists(limit=30)
+    user_sub = getattr(st.user, "sub", "")
+    user_top_start_songs = (
+        get_top_selected_start_songs_by_creator(user_sub, limit=30) if user_sub else []
+    )
 
-    if top_songs or top_artists:
+    if top_songs or top_artists or top_start_songs:
+        col_start_all, col_start_user = st.columns(2)
+
+        with col_start_all:
+            st.markdown("### 🎵 よく選ばれている開始曲 TOP30")
+            if top_start_songs:
+                start_song_ids = [item["song_id"] for item in top_start_songs]
+                start_songs_info = get_songs(start_song_ids)
+                start_songs_dict = {song["song_id"]: song for song in start_songs_info}
+
+                start_songs_data = []
+                for idx, item in enumerate(top_start_songs, 1):
+                    song = start_songs_dict.get(item["song_id"], {})
+                    start_songs_data.append(
+                        {
+                            "順位": idx,
+                            "曲名": song.get("song_title", item["song_id"]),
+                            "アーティスト": song.get("artist_name", ""),
+                            "選択回数": item["count"],
+                        }
+                    )
+                df_start_songs = pd.DataFrame(start_songs_data)
+                st.dataframe(
+                    df_start_songs,
+                    hide_index=True,
+                    use_container_width=True,
+                    height=300,
+                )
+            else:
+                st.info("プレイリストに開始曲がまだありません")
+
+        with col_start_user:
+            st.markdown("### 👤 あなたがよく選ぶ開始曲 TOP30")
+            if user_top_start_songs:
+                user_song_ids = [item["song_id"] for item in user_top_start_songs]
+                user_songs_info = get_songs(user_song_ids)
+                user_songs_dict = {song["song_id"]: song for song in user_songs_info}
+
+                user_songs_data = []
+                for idx, item in enumerate(user_top_start_songs, 1):
+                    song = user_songs_dict.get(item["song_id"], {})
+                    user_songs_data.append(
+                        {
+                            "順位": idx,
+                            "曲名": song.get("song_title", item["song_id"]),
+                            "アーティスト": song.get("artist_name", ""),
+                            "選択回数": item["count"],
+                        }
+                    )
+                df_user_songs = pd.DataFrame(user_songs_data)
+                st.dataframe(
+                    df_user_songs,
+                    hide_index=True,
+                    use_container_width=True,
+                    height=300,
+                )
+            elif user_sub:
+                st.info("あなたのプレイリストに開始曲がまだありません")
+            else:
+                st.info("ログインユーザーが取得できないため表示できません")
+
         col_songs, col_artists = st.columns(2)
 
         with col_songs:
@@ -133,7 +203,9 @@ try:
                         }
                     )
                 df_songs = pd.DataFrame(songs_data)
-                st.dataframe(df_songs, hide_index=True, use_container_width=True, height=400)
+                st.dataframe(
+                    df_songs, hide_index=True, use_container_width=True, height=400
+                )
             else:
                 st.info("プレイリストに曲がまだありません")
 
@@ -150,7 +222,9 @@ try:
                         }
                     )
                 df_artists = pd.DataFrame(artists_data)
-                st.dataframe(df_artists, hide_index=True, use_container_width=True, height=400)
+                st.dataframe(
+                    df_artists, hide_index=True, use_container_width=True, height=400
+                )
             else:
                 st.info("アーティストデータがまだありません")
     else:

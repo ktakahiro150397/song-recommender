@@ -122,14 +122,12 @@ for idx, header in enumerate(headers, 1):
         {
             "項目": [
                 "最初の曲",
-                "プレイリストID",
                 "URL",
                 "作成者",
                 "作成日時",
             ],
             "内容": [
                 first_song_id,
-                playlist_id,
                 playlist_url,
                 creator_email,
                 created_at_display,

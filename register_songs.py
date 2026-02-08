@@ -364,6 +364,7 @@ def process_youtube_queue(parallel_mode: str = "none") -> None:
 
                 registered = False
                 mysql_already_stored = False
+                current_bpm = None
                 print(
                     f"   [debug] YouTubeスクリプト: {filename} に対して複数DB登録開始"
                 )
@@ -372,7 +373,7 @@ def process_youtube_queue(parallel_mode: str = "none") -> None:
                     print(
                         f"   [debug] DB登録試行 [{idx+1}/3]: {db.collection.name} (mode={mode})"
                     )
-                    success, emb = add_song(
+                    success, emb, bpm = add_song(
                         db,
                         extractor,
                         file_path,
@@ -384,6 +385,7 @@ def process_youtube_queue(parallel_mode: str = "none") -> None:
                             song_title if not mysql_already_stored else None
                         ),
                         skip_mysql=mysql_already_stored,
+                        bpm=current_bpm,
                     )
                     if success:
                         print(f"   [debug] DB登録成功: {db.collection.name}")
@@ -391,6 +393,8 @@ def process_youtube_queue(parallel_mode: str = "none") -> None:
                         mysql_already_stored = (
                             True  # 最初のDB登録後、以降はMySQL登録をスキップ
                         )
+                        if bpm is not None and current_bpm is None:
+                            current_bpm = bpm
                     else:
                         print(f"   [debug] DB登録スキップ: {db.collection.name}")
 
@@ -460,7 +464,8 @@ def add_song(
     artist_name: str | None = None,
     song_title_override: str | None = None,
     skip_mysql: bool = False,
-) -> tuple[bool, list[float] | None]:
+    bpm: float | None = None,
+) -> tuple[bool, list[float] | None, float | None]:
     """
     1曲をDBに登録する
 
@@ -474,36 +479,30 @@ def add_song(
         artist_name: アーティスト名（任意）
         song_title_override: 曲名上書き（任意）
         skip_mysql: MySQLへの登録をスキップするか（複数DB登録時、2番目以降のDBではTrue）
+        bpm: BPM（テンポ）
 
     Returns:
-        (登録したらTrue、embeddingベクトル) のタプル
+        (登録したらTrue、embeddingベクトル、BPM) のタプル
     """
     # 対象の拡張子のみ処理
     if not (filename.endswith(".wav") or filename.endswith(".mp3")):
-        return False, None
+        return False, None, None
 
-    # このDB用の処理済みチェック（複数DB登録時に同じDBへの重複登録を防ぐ）
     collection_name = db.collection.name
-    if song_metadata_db.is_processed(song_id=filename, collection_name=collection_name):
-        print(f"   [debug] add_song: {collection_name} は既に処理済み - スキップ")
-        return False, None
-
-    # MySQL側の存在チェック（最初のDB登録の時のみ）
+    
+    # ステップ1: MySQLメタデータの確認と登録（最初のDB登録時のみ）
+    metadata_exists = False
     if not skip_mysql:
-        print(f"   [debug] add_song: MySQL存在チェック実行 (skip_mysql={skip_mysql})")
-        if song_metadata_db.get_song(song_id=filename) is not None:
-            print(f"   [debug] add_song: {filename} はMySQL側に既に存在 - スキップ")
-            return False, None
-    else:
-        print(
-            f"   [debug] add_song: MySQL存在チェック スキップ (skip_mysql={skip_mysql})"
-        )
-
-    # 特徴量抽出（初回のみ）
-    if embedding is None:
-        print(f"   [debug] add_song: 特徴量抽出開始 ({collection_name})")
-        # YouTube IDによる重複チェック（最初のDB登録、MySQL記録時のみ）
-        if not skip_mysql:
+        print(f"   [debug] add_song: MySQL存在チェック実行")
+        existing_song = song_metadata_db.get_song(song_id=filename)
+        if existing_song is not None:
+            print(f"   [debug] add_song: {filename} はMySQL側に既に存在")
+            metadata_exists = True
+            # 既存のBPMを取得
+            if bpm is None and existing_song.get("bpm") is not None:
+                bpm = existing_song["bpm"]
+        else:
+            # YouTube IDによる重複チェック
             youtube_id = extract_youtube_id(filename)
             if youtube_id:
                 print(f"   [debug] add_song: YouTubeID重複チェック: {youtube_id}")
@@ -512,12 +511,59 @@ def add_song(
                     print(
                         f"   [debug] add_song: YouTubeID {youtube_id} は既に存在 - スキップ"
                     )
-                    return False, None
-        else:
-            print(
-                f"   [debug] add_song: YouTubeID重複チェック スキップ (skip_mysql={skip_mysql})"
+                    return False, None, None
+            
+            # メタデータがない場合は登録
+            print(f"   [debug] add_song: MySQL側へのメタデータ登録開始")
+            
+            # BPMを抽出（まだ抽出されていない場合）
+            if bpm is None:
+                print(f"   [debug] add_song: BPM抽出のため特徴量抽出開始")
+                try:
+                    features = extractor.extract(file_path)
+                    bpm = features.tempo
+                    print(f"   [debug] add_song: BPM抽出成功: {bpm:.1f}")
+                except Exception as e:
+                    print(f"   ⚠️  BPM抽出エラー ({filename}): {str(e)}")
+                    bpm = None
+            
+            song_title = (
+                song_title_override
+                if song_title_override
+                else extract_song_title(filename)
             )
+            _, ext = os.path.splitext(filename)
+            
+            # artist_nameが指定されていない場合は、normalized_dirを使用
+            if artist_name is None:
+                artist_name = normalized_dir
+            
+            song_metadata_db.add_song(
+                song_id=filename,
+                filename=filename,
+                song_title=song_title,
+                artist_name=artist_name,
+                source_dir=normalized_dir,
+                youtube_id=youtube_id if youtube_id is not None else "",
+                file_extension=ext.lower(),
+                file_size_mb=get_file_size_mb(file_path),
+                bpm=bpm,
+                excluded_from_search=False,
+            )
+            print(f"   [debug] add_song: MySQL側へのメタデータ登録完了")
+            metadata_exists = True
+    else:
+        print(f"   [debug] add_song: MySQL存在チェック スキップ (skip_mysql={skip_mysql})")
+        metadata_exists = True  # skip_mysqlの場合は既に存在すると仮定
 
+    # ステップ2: ベクトルDBの処理済みチェック
+    if song_metadata_db.is_processed(song_id=filename, collection_name=collection_name):
+        print(f"   [debug] add_song: {collection_name} は既に処理済み - スキップ")
+        return False, None, bpm
+
+    # ステップ3: 特徴量抽出（必要な場合）
+    if embedding is None:
+        print(f"   [debug] add_song: 特徴量抽出開始 ({collection_name})")
         try:
             embedding = extractor.extract_to_vector(file_path)
             print(f"   [debug] add_song: 特徴量抽出成功 (次元数: {len(embedding)})")
@@ -525,33 +571,7 @@ def add_song(
             print(f"   ❌ 特徴量抽出エラー ({filename}): {str(e)}")
             raise
 
-        # MySQLにメタデータを保存（初回のみ）
-        if not skip_mysql:
-            print(f"   [debug] add_song: MySQL側へのメタデータ登録開始")
-            song_title = (
-                song_title_override
-                if song_title_override
-                else extract_song_title(filename)
-            )
-            _, ext = os.path.splitext(filename)
-            youtube_id = extract_youtube_id(filename)
-
-            song_metadata_db.add_song(
-                song_id=filename,
-                filename=filename,
-                song_title=song_title,
-                artist_name=artist_name if artist_name is not None else "",
-                source_dir=normalized_dir,
-                youtube_id=youtube_id if youtube_id is not None else "",
-                file_extension=ext.lower(),
-                file_size_mb=get_file_size_mb(file_path),
-                excluded_from_search=False,
-            )
-            print(f"   [debug] add_song: MySQL側へのメタデータ登録完了")
-        else:
-            print(f"   [debug] add_song: MySQL側へのメタデータ登録 スキップ")
-
-    # ChromaDBには最小限のデータのみ保存（IDとベクトルと検索除外フラグ、source_dir）
+    # ステップ4: ChromaDBへのベクトル登録
     print(f"   [debug] add_song: ChromaDB {collection_name} へのベクトル登録中")
     db.add_song(
         song_id=filename,
@@ -568,7 +588,7 @@ def add_song(
     )
     print(f"   [debug] add_song: processed_collection マーク完了 ({collection_name})")
 
-    return True, embedding
+    return True, embedding, bpm
 
 
 def prepare_song_data(
@@ -578,7 +598,7 @@ def prepare_song_data(
     normalized_dir: str,
     artist_name: str | None = None,
     song_title_override: str | None = None,
-) -> tuple[str, list[float], str, str, str, str, float] | None:
+) -> tuple[str, list[float], str, str, str, str, float, float | None] | None:
     """
     1曲分のデータを準備する（バッチ処理用）
 
@@ -591,7 +611,7 @@ def prepare_song_data(
         song_title_override: 曲名上書き（任意）
 
     Returns:
-        (song_id, embedding, song_title, artist_name, youtube_id, file_extension, file_size_mb) のタプル、
+        (song_id, embedding, song_title, artist_name, youtube_id, file_extension, file_size_mb, bpm) のタプル、
         または処理不要の場合はNone
     """
     # 対象の拡張子のみ処理
@@ -600,7 +620,9 @@ def prepare_song_data(
 
     # 特徴量抽出
     try:
-        embedding = extractor.extract_to_vector(file_path)
+        features = extractor.extract(file_path)
+        embedding = features.to_vector(extractor.mode)
+        bpm = features.tempo
     except Exception as e:
         print(f"   ❌ 特徴量抽出エラー ({filename}): {str(e)}")
         return None
@@ -611,21 +633,26 @@ def prepare_song_data(
         song_title_override if song_title_override else extract_song_title(filename)
     )
     _, ext = os.path.splitext(filename)
+    
+    # artist_nameが指定されていない場合は、normalized_dirを使用
+    if artist_name is None:
+        artist_name = normalized_dir
 
     return (
         filename,  # song_id
         embedding,
         song_title,
-        artist_name if artist_name is not None else "",
+        artist_name,
         youtube_id if youtube_id is not None else "",
         ext.lower(),
         get_file_size_mb(file_path),
+        bpm,
     )
 
 
 def add_songs_batch(
     db: SongVectorDB,
-    song_data_list: list[tuple[str, list[float], str, str, str, str, float]],
+    song_data_list: list[tuple[str, list[float], str, str, str, str, float, float | None]],
     normalized_dir: str,
     skip_mysql: bool = False,
 ) -> int:
@@ -634,7 +661,7 @@ def add_songs_batch(
 
     Args:
         db: ベクトルDB
-        song_data_list: (song_id, embedding, song_title, artist_name, youtube_id, file_extension, file_size_mb) のリスト
+        song_data_list: (song_id, embedding, song_title, artist_name, youtube_id, file_extension, file_size_mb, bpm) のリスト
         normalized_dir: 正規化されたディレクトリパス
         skip_mysql: MySQLへの登録をスキップするか（複数DB登録時、最初のDB以外ではTrue）
 
@@ -670,6 +697,7 @@ def add_songs_batch(
                 youtube_id,
                 file_extension,
                 file_size_mb,
+                bpm,
             ) = data
             songs.append(
                 Song(
@@ -681,6 +709,7 @@ def add_songs_batch(
                     youtube_id=youtube_id,
                     file_extension=file_extension,
                     file_size_mb=file_size_mb,
+                    bpm=bpm,
                     registered_at=datetime.now(),
                     excluded_from_search=False,
                 )

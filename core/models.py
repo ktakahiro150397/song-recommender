@@ -101,6 +101,7 @@ class Song(Base):
     )
     file_extension: Mapped[str] = mapped_column(String(10), nullable=False)
     file_size_mb: Mapped[float] = mapped_column(Float, nullable=False)
+    bpm: Mapped[float | None] = mapped_column(Float, nullable=True)
     registered_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=datetime.now
     )

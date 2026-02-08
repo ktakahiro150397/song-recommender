@@ -153,7 +153,9 @@ for idx, header in enumerate(headers, 1):
             st.warning("本当に削除しますか？この操作は取り消せません。")
             col_confirm, col_cancel = st.columns(2)
             with col_confirm:
-                if st.button("削除を確定", key=f"confirm_{playlist_id}", type="primary"):
+                if st.button(
+                    "削除を確定", key=f"confirm_{playlist_id}", type="primary"
+                ):
                     if playlist_db.delete_playlist(playlist_id, user_sub):
                         st.session_state["delete_notice"] = (
                             f"プレイリスト「{playlist_name}」を削除しました"

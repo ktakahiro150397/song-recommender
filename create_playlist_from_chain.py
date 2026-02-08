@@ -161,6 +161,7 @@ def chain_search_to_list(
     n_songs: int = 30,
     artist_filter: str | list[str] | None = None,
     min_bpm: float | None = None,
+    max_bpm: float | None = None,
 ) -> list[tuple[str, float, dict]]:
     """
     1曲から始めて類似曲を連鎖的に辿り、結果をリストで返す
@@ -171,6 +172,7 @@ def chain_search_to_list(
         n_songs: 取得する曲数
         artist_filter: source_dirでフィルタリング（複数可）
         min_bpm: 最小BPM（指定された場合、この値以上のBPMの曲のみ選択）
+        max_bpm: 最大BPM（指定された場合、この値以下のBPMの曲のみ選択）
 
     Returns:
         [(song_id, distance, metadata), ...] のリスト（開始曲を含む）
@@ -198,6 +200,8 @@ def chain_search_to_list(
         print(f"   対象ディレクトリ: {len(matched_dirs)}個")
     if min_bpm is not None:
         print(f"   最小BPMフィルタ: {min_bpm:.1f} BPM以上")
+    if max_bpm is not None:
+        print(f"   最大BPMフィルタ: {max_bpm:.1f} BPM以下")
     print(f"{'='*60}")
 
     # 開始曲の存在確認（全てのDBで確認）
@@ -280,11 +284,14 @@ def chain_search_to_list(
             for song_id, distance in zip(candidate_ids, candidate_distances):
                 metadata = metadata_dict.get(song_id, {})
 
-                # BPMフィルタを適用（min_bpmが指定されている場合）
-                if min_bpm is not None:
+                # BPMフィルタを適用
+                if min_bpm is not None or max_bpm is not None:
                     song_bpm = metadata.get("bpm")
-                    # BPMが未設定、またはmin_bpm未満の場合はスキップ
-                    if song_bpm is None or song_bpm < min_bpm:
+                    if song_bpm is None:
+                        continue
+                    if min_bpm is not None and song_bpm < min_bpm:
+                        continue
+                    if max_bpm is not None and song_bpm > max_bpm:
                         continue
 
                 if song_id not in visited and distance < best_distance:

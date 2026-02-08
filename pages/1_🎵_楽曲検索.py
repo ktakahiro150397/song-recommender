@@ -509,11 +509,16 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
             )
 
         # BPMフィルタオプション
-        use_bpm_filter = st.checkbox(
-            "選択した曲以上のBPMのみで作成",
-            value=False,
-            help="選択した曲のBPM以上の曲のみでプレイリストを作成します",
-            key="use_bpm_filter",
+        bpm_filter_mode = st.selectbox(
+            "BPMフィルタ",
+            options=[
+                "BPM条件なし",
+                "選択した曲以上のBPMのみで作成",
+                "選択した曲以下のBPMのみで作成",
+            ],
+            index=0,
+            help="選択した曲のBPMを基準にフィルタします",
+            key="bpm_filter_mode",
         )
 
         if st.button("🔍 連鎖検索を実行", type="primary", key="chain_search_button"):
@@ -533,13 +538,25 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
 
                 # BPMフィルタが有効な場合、選択曲のBPMを取得
                 min_bpm = None
-                if use_bpm_filter:
+                max_bpm = None
+                if bpm_filter_mode != "BPM条件なし":
                     selected_song_metadata = song_metadata_db.get_song(selected_song)
                     if selected_song_metadata and selected_song_metadata.get("bpm"):
-                        min_bpm = selected_song_metadata["bpm"]
-                        st.info(f"🎵 選択した曲のBPM: {min_bpm:.1f} BPM以上でフィルタリング")
+                        selected_bpm = selected_song_metadata["bpm"]
+                        if bpm_filter_mode == "選択した曲以上のBPMのみで作成":
+                            min_bpm = selected_bpm
+                            st.info(
+                                f"🎵 選択した曲のBPM: {min_bpm:.1f} BPM以上でフィルタリング"
+                            )
+                        elif bpm_filter_mode == "選択した曲以下のBPMのみで作成":
+                            max_bpm = selected_bpm
+                            st.info(
+                                f"🎵 選択した曲のBPM: {max_bpm:.1f} BPM以下でフィルタリング"
+                            )
                     else:
-                        st.warning("⚠️ 選択した曲のBPM情報がないため、BPMフィルタは無効です")
+                        st.warning(
+                            "⚠️ 選択した曲のBPM情報がないため、BPMフィルタは無効です"
+                        )
 
                 # 既存の関数を使用
                 chain_results = chain_search_to_list(
@@ -552,6 +569,7 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
                         else None
                     ),
                     min_bpm=min_bpm,
+                    max_bpm=max_bpm,
                 )
 
                 # セッション状態に保存

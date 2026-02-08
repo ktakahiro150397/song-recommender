@@ -311,6 +311,111 @@ def get_top_selected_songs(limit: int = 30) -> list[dict]:
         return [{"song_id": row[0], "count": row[1]} for row in rows]
 
 
+def get_top_selected_songs_by_creator(
+    creator_sub: str,
+    limit: int = 30,
+) -> list[dict]:
+    """
+    指定ユーザーのプレイリストで最も選ばれている曲のTOP N を取得する
+
+    Args:
+        creator_sub: 作成者のユーザーSub
+        limit: 取得件数（デフォルト: 30）
+
+    Returns:
+        [{"song_id": str, "count": int}, ...]
+    """
+    if not creator_sub:
+        return []
+
+    from sqlalchemy import func
+
+    with get_session() as session:
+        stmt = (
+            select(
+                PlaylistItem.song_id, func.count(PlaylistItem.song_id).label("count")
+            )
+            .join(
+                PlaylistHeader, PlaylistItem.playlist_id == PlaylistHeader.playlist_id
+            )
+            .where(PlaylistHeader.deleted_at.is_(None))
+            .where(PlaylistHeader.creator_sub == creator_sub)
+            .group_by(PlaylistItem.song_id)
+            .order_by(func.count(PlaylistItem.song_id).desc())
+            .limit(limit)
+        )
+        rows = list(session.execute(stmt).all())
+        return [{"song_id": row[0], "count": row[1]} for row in rows]
+
+
+def get_top_selected_start_songs(limit: int = 30) -> list[dict]:
+    """
+    プレイリスト開始曲(1曲目)で最も選ばれている曲のTOP N を取得する
+
+    Args:
+        limit: 取得件数（デフォルト: 30）
+
+    Returns:
+        [{"song_id": str, "count": int}, ...]
+    """
+    from sqlalchemy import func
+
+    with get_session() as session:
+        stmt = (
+            select(
+                PlaylistItem.song_id, func.count(PlaylistItem.song_id).label("count")
+            )
+            .join(
+                PlaylistHeader, PlaylistItem.playlist_id == PlaylistHeader.playlist_id
+            )
+            .where(PlaylistHeader.deleted_at.is_(None))
+            .where(PlaylistItem.seq == 1)
+            .group_by(PlaylistItem.song_id)
+            .order_by(func.count(PlaylistItem.song_id).desc())
+            .limit(limit)
+        )
+        rows = list(session.execute(stmt).all())
+        return [{"song_id": row[0], "count": row[1]} for row in rows]
+
+
+def get_top_selected_start_songs_by_creator(
+    creator_sub: str,
+    limit: int = 30,
+) -> list[dict]:
+    """
+    指定ユーザーのプレイリスト開始曲(1曲目)のTOP N を取得する
+
+    Args:
+        creator_sub: 作成者のユーザーSub
+        limit: 取得件数（デフォルト: 30）
+
+    Returns:
+        [{"song_id": str, "count": int}, ...]
+    """
+    if not creator_sub:
+        return []
+
+    from sqlalchemy import func
+
+    with get_session() as session:
+        stmt = (
+            select(
+                PlaylistItem.song_id, func.count(PlaylistItem.song_id).label("count")
+            )
+            .join(
+                PlaylistHeader, PlaylistItem.playlist_id == PlaylistHeader.playlist_id
+            )
+            .where(PlaylistHeader.deleted_at.is_(None))
+            .where(PlaylistHeader.creator_sub == creator_sub)
+            .where(PlaylistItem.seq == 1)
+            .group_by(PlaylistItem.song_id)
+            .order_by(func.count(PlaylistItem.song_id).desc())
+            .limit(limit)
+        )
+        rows = list(session.execute(stmt).all())
+        return [{"song_id": row[0], "count": row[1]} for row in rows]
+
+
 def get_top_selected_artists(limit: int = 30) -> list[dict]:
     """
     プレイリストで最も選ばれているアーティストのTOP N を取得する

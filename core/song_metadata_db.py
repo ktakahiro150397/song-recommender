@@ -20,6 +20,7 @@ def add_song(
     youtube_id: str = "",
     file_extension: str = "",
     file_size_mb: float = 0.0,
+    bpm: float | None = None,
     excluded_from_search: bool = False,
 ) -> None:
     """
@@ -34,6 +35,7 @@ def add_song(
         youtube_id: YouTube動画ID
         file_extension: ファイル拡張子
         file_size_mb: ファイルサイズ（MB）
+        bpm: BPM（テンポ）
         excluded_from_search: 検索除外フラグ
     """
     with get_session() as session:
@@ -46,6 +48,7 @@ def add_song(
             youtube_id=youtube_id,
             file_extension=file_extension,
             file_size_mb=file_size_mb,
+            bpm=bpm,
             registered_at=datetime.now(),
             excluded_from_search=excluded_from_search,
         )
@@ -109,6 +112,7 @@ def get_songs(song_ids: list[str]) -> list[dict]:
                 "youtube_id": song.youtube_id,
                 "file_extension": song.file_extension,
                 "file_size_mb": song.file_size_mb,
+                "bpm": song.bpm,
                 "registered_at": song.registered_at.isoformat(),
                 "excluded_from_search": song.excluded_from_search,
             }
@@ -140,6 +144,7 @@ def get_by_youtube_id(youtube_id: str) -> dict | None:
                 "youtube_id": result.youtube_id,
                 "file_extension": result.file_extension,
                 "file_size_mb": result.file_size_mb,
+                "bpm": result.bpm,
                 "registered_at": result.registered_at.isoformat(),
                 "excluded_from_search": result.excluded_from_search,
             }
@@ -189,6 +194,7 @@ def search_by_keyword(
                     "youtube_id": song.youtube_id,
                     "file_extension": song.file_extension,
                     "file_size_mb": song.file_size_mb,
+                    "bpm": song.bpm,
                     "registered_at": song.registered_at.isoformat(),
                     "excluded_from_search": song.excluded_from_search,
                 },
@@ -288,6 +294,7 @@ def list_all(
                     "youtube_id": song.youtube_id,
                     "file_extension": song.file_extension,
                     "file_size_mb": song.file_size_mb,
+                    "bpm": song.bpm,
                     "registered_at": song.registered_at.isoformat(),
                     "excluded_from_search": song.excluded_from_search,
                 },

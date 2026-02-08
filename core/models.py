@@ -101,6 +101,7 @@ class Song(Base):
     )
     file_extension: Mapped[str] = mapped_column(String(10), nullable=False)
     file_size_mb: Mapped[float] = mapped_column(Float, nullable=False)
+    bpm: Mapped[float | None] = mapped_column(Float, nullable=True)
     registered_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=datetime.now
     )
@@ -161,11 +162,15 @@ class PlaylistHeader(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=datetime.now
     )
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True, default=None
+    )
 
     __table_args__ = (
         Index("idx_playlist_id", "playlist_id"),
         Index("idx_creator_sub", "creator_sub"),
         Index("idx_playlist_created_at", "created_at"),
+        Index("idx_playlist_deleted_at", "deleted_at"),
     )
 
     def __repr__(self) -> str:
@@ -185,6 +190,9 @@ class PlaylistComment(Base):
     )
     user_sub: Mapped[str] = mapped_column(String(200), nullable=False)
     comment: Mapped[str] = mapped_column(Text, nullable=False)
+    is_deleted: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="0"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=datetime.now
     )

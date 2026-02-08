@@ -162,11 +162,15 @@ class PlaylistHeader(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=datetime.now
     )
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True, default=None
+    )
 
     __table_args__ = (
         Index("idx_playlist_id", "playlist_id"),
         Index("idx_creator_sub", "creator_sub"),
         Index("idx_playlist_created_at", "created_at"),
+        Index("idx_playlist_deleted_at", "deleted_at"),
     )
 
     def __repr__(self) -> str:

@@ -127,9 +127,7 @@ try:
             if top_start_songs:
                 start_song_ids = [item["song_id"] for item in top_start_songs]
                 start_songs_info = get_songs(start_song_ids)
-                start_songs_dict = {
-                    song["song_id"]: song for song in start_songs_info
-                }
+                start_songs_dict = {song["song_id"]: song for song in start_songs_info}
 
                 start_songs_data = []
                 for idx, item in enumerate(top_start_songs, 1):

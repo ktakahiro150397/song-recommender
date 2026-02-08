@@ -487,3 +487,20 @@ def get_songs_as_dict(song_ids: list[str]) -> dict[str, dict]:
     """
     songs = get_songs(song_ids)
     return {song_dict["song_id"]: song_dict for song_dict in songs}
+
+
+def get_total_processed_data_size_gb() -> float:
+    """
+    処理済みデータの合計サイズをGB単位で取得する
+
+    Returns:
+        合計サイズ（GB）
+    """
+    from sqlalchemy import func
+
+    MB_TO_GB_FACTOR = 1024.0
+
+    with get_session() as session:
+        stmt = select(func.sum(Song.file_size_mb)).select_from(Song)
+        total_mb = session.scalar(stmt) or 0.0
+        return total_mb / MB_TO_GB_FACTOR  # MBからGBに変換

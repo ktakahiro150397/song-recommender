@@ -206,3 +206,55 @@ def get_playlist_items(playlist_id: str) -> list[dict]:
             }
             for row in rows
         ]
+
+
+def get_top_selected_songs(limit: int = 30) -> list[dict]:
+    """
+    プレイリストで最も選ばれている曲のTOP N を取得する
+
+    Args:
+        limit: 取得件数（デフォルト: 30）
+
+    Returns:
+        [{"song_id": str, "count": int}, ...]
+    """
+    from sqlalchemy import func
+
+    with get_session() as session:
+        stmt = (
+            select(PlaylistItem.song_id, func.count(PlaylistItem.song_id).label("count"))
+            .group_by(PlaylistItem.song_id)
+            .order_by(func.count(PlaylistItem.song_id).desc())
+            .limit(limit)
+        )
+        rows = list(session.execute(stmt).all())
+        return [{"song_id": row[0], "count": row[1]} for row in rows]
+
+
+def get_top_selected_artists(limit: int = 30) -> list[dict]:
+    """
+    プレイリストで最も選ばれているアーティストのTOP N を取得する
+    
+    空文字列のアーティスト名は除外されます（アーティスト情報が不明な曲を除くため）
+
+    Args:
+        limit: 取得件数（デフォルト: 30）
+
+    Returns:
+        [{"artist_name": str, "count": int}, ...]
+    """
+    from sqlalchemy import func
+    from core.models import Song
+
+    with get_session() as session:
+        # PlaylistItem と Song を結合してアーティスト名を取得
+        stmt = (
+            select(Song.artist_name, func.count(PlaylistItem.song_id).label("count"))
+            .join(Song, PlaylistItem.song_id == Song.song_id)
+            .where(Song.artist_name != "")
+            .group_by(Song.artist_name)
+            .order_by(func.count(PlaylistItem.song_id).desc())
+            .limit(limit)
+        )
+        rows = list(session.execute(stmt).all())
+        return [{"artist_name": row[0], "count": row[1]} for row in rows]

@@ -189,6 +189,9 @@ class PlaylistComment(Base):
     )
     user_sub: Mapped[str] = mapped_column(String(200), nullable=False)
     comment: Mapped[str] = mapped_column(Text, nullable=False)
+    is_deleted: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="0"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=datetime.now
     )

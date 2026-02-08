@@ -26,6 +26,13 @@ st.set_page_config(
 st.title("📋 作成済みプレイリスト履歴")
 st.markdown("---")
 
+if "delete_confirm_id" not in st.session_state:
+    st.session_state.delete_confirm_id = ""
+
+delete_notice = st.session_state.pop("delete_notice", "")
+if delete_notice:
+    st.toast(delete_notice)
+
 
 user_sub = getattr(st.user, "sub", "")
 user_email = getattr(st.user, "email", "")
@@ -142,17 +149,32 @@ for idx, header in enumerate(headers, 1):
     # 削除ボタン（作成者のみ表示）
     if user_sub and creator_sub == user_sub:
         delete_button_key = f"delete_playlist_{playlist_id}"
-        if st.button(
-            "🗑️ このプレイリストを削除", 
-            key=delete_button_key, 
-            type="secondary",
-            help="このプレイリストを完全に削除します"
-        ):
-            if playlist_db.delete_playlist(playlist_id, user_sub):
-                st.success(f"プレイリスト「{playlist_name}」を削除しました")
+        if st.session_state.delete_confirm_id == playlist_id:
+            st.warning("本当に削除しますか？この操作は取り消せません。")
+            col_confirm, col_cancel = st.columns(2)
+            with col_confirm:
+                if st.button("削除を確定", key=f"confirm_{playlist_id}", type="primary"):
+                    if playlist_db.delete_playlist(playlist_id, user_sub):
+                        st.session_state["delete_notice"] = (
+                            f"プレイリスト「{playlist_name}」を削除しました"
+                        )
+                        st.session_state.delete_confirm_id = ""
+                        st.rerun()
+                    else:
+                        st.error("プレイリストの削除に失敗しました")
+            with col_cancel:
+                if st.button("キャンセル", key=f"cancel_{playlist_id}"):
+                    st.session_state.delete_confirm_id = ""
+                    st.rerun()
+        else:
+            if st.button(
+                "🗑️ このプレイリストを削除",
+                key=delete_button_key,
+                type="secondary",
+                help="このプレイリストを完全に削除します",
+            ):
+                st.session_state.delete_confirm_id = playlist_id
                 st.rerun()
-            else:
-                st.error("プレイリストの削除に失敗しました")
 
     if header_comment:
         header_comment_html = html.escape(header_comment).replace("\n", "<br>")

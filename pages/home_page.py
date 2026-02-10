@@ -241,6 +241,10 @@ with st.expander("🔍 データベース詳細情報", expanded=True):
     - **Full**: 全特徴量（72次元）- 細かい違いを見たい場合
     - **Balance**: バランス型（33次元）- 汎用的な検索に推奨
     - **Minimal**: 最小限（15次元）- テンポ・明るさ重視
+
+    追加のセグメント系ベクトルDB：
+    - **MERT**: m-a-p/MERT-v1-95M（768次元）
+    - **AST**: MIT/ast-finetuned-audioset-10-10-0.4593（768次元）
     """
     )
 
@@ -263,6 +267,25 @@ with st.expander("🔍 データベース詳細情報", expanded=True):
                 st.metric(label=f"{name} DB", value=f"{count:,} 曲")
             except Exception as e:
                 st.metric(label=f"{name} DB", value="エラー")
+
+    seg_cols = st.columns(2)
+    SEG_COLLECTIONS = {
+        "MERT": "songs_segments_mert",
+        "AST": "songs_segments_ast",
+    }
+
+    for idx, (name, collection_name) in enumerate(SEG_COLLECTIONS.items()):
+        with seg_cols[idx]:
+            try:
+                db_detail = SongVectorDB(
+                    collection_name=collection_name,
+                    distance_fn="cosine",
+                    use_remote=True,
+                )
+                count = db_detail.count()
+                st.metric(label=f"{name} Seg DB", value=f"{count:,} レコード")
+            except Exception as e:
+                st.metric(label=f"{name} Seg DB", value="エラー")
 
     st.markdown("### YouTube楽曲キュー")
     if queue_counts["total"] > 0:

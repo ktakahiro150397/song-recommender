@@ -108,30 +108,27 @@ export default async function HomePage() {
             Top performers
           </h2>
           <div className="mt-4 space-y-4">
-            <ListBlock title="Most referenced songs">
-              {playlistStats.top_songs.map((song) => (
-                <li key={song.song_id}>
-                  <span>{song.song_id}</span>
-                  <span>{song.count}</span>
-                </li>
-              ))}
-            </ListBlock>
-            <ListBlock title="Top artists">
-              {playlistStats.top_artists.map((artist) => (
-                <li key={artist.artist_name}>
-                  <span>{artist.artist_name}</span>
-                  <span>{artist.count}</span>
-                </li>
-              ))}
-            </ListBlock>
-            <ListBlock title="Popular starters">
-              {playlistStats.top_start_songs.map((song) => (
-                <li key={song.song_id}>
-                  <span>{song.song_id}</span>
-                  <span>{song.count}</span>
-                </li>
-              ))}
-            </ListBlock>
+            <ListBlock
+              title="Most referenced songs"
+              rows={playlistStats.top_songs.map((song) => ({
+                label: song.song_id,
+                value: song.count,
+              }))}
+            />
+            <ListBlock
+              title="Top artists"
+              rows={playlistStats.top_artists.map((artist) => ({
+                label: artist.artist_name,
+                value: artist.count,
+              }))}
+            />
+            <ListBlock
+              title="Popular starters"
+              rows={playlistStats.top_start_songs.map((song) => ({
+                label: song.song_id,
+                value: song.count,
+              }))}
+            />
           </div>
         </div>
         <div className="rounded-3xl border border-white/10 bg-slate-900/60 p-6">
@@ -157,18 +154,44 @@ export default async function HomePage() {
   );
 }
 
-type ListBlockProps = {
-  title: string;
-  children: React.ReactNode;
+type RankingRow = {
+  label: string;
+  value: string | number;
 };
 
-function ListBlock({ title, children }: ListBlockProps) {
+type ListBlockProps = {
+  title: string;
+  rows: RankingRow[];
+};
+
+function ListBlock({ title, rows }: ListBlockProps) {
   return (
     <div className="rounded-2xl border border-white/10 bg-slate-950/50 p-4">
       <p className="text-xs uppercase tracking-wide text-slate-400">{title}</p>
-      <ul className="mt-3 space-y-2 text-sm text-slate-200">
-        {children}
-      </ul>
+      <div className="mt-3 overflow-hidden rounded-xl border border-white/5">
+        <table className="w-full border-collapse text-sm">
+          <thead className="bg-slate-900/70 text-xs uppercase tracking-wide text-slate-400">
+            <tr>
+              <th className="w-16 px-4 py-2 text-left font-semibold">#</th>
+              <th className="px-4 py-2 text-left font-semibold">Name</th>
+              <th className="w-24 px-4 py-2 text-right font-semibold">Count</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, index) => (
+              <tr key={`${row.label}-${index}`} className="odd:bg-slate-900/40">
+                <td className="px-4 py-2 font-mono text-xs text-slate-500">
+                  {String(index + 1).padStart(2, "0")}
+                </td>
+                <td className="px-4 py-2 text-slate-100">{row.label}</td>
+                <td className="px-4 py-2 text-right text-base font-semibold text-slate-200">
+                  {row.value}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

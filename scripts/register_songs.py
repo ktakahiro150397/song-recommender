@@ -64,6 +64,17 @@ SEGMENT_MODELS = [
 ]
 
 
+def clear_segment_search_cache() -> None:
+    from core.database import get_session
+    from sqlalchemy import text
+
+    with get_session() as session:
+        session.execute(
+            text("DELETE FROM song_recommender.segment_search_cache WHERE id <> 0;")
+        )
+        session.commit()
+
+
 # ========== シグナルハンドラ ==========
 
 
@@ -695,6 +706,13 @@ def process_youtube_queue(parallel_mode: str = "none") -> None:
         except Exception as e:
             print(f"⚠️  一時ディレクトリ削除エラー: {str(e)}")
 
+    print("\n🧹 セグメント検索キャッシュをクリア中...")
+    try:
+        clear_segment_search_cache()
+        print("✅ セグメント検索キャッシュをクリアしました")
+    except Exception as e:
+        print(f"⚠️  キャッシュクリア失敗: {str(e)}")
+
     # 結果サマリー
     print("=" * 60)
     print("📊 結果サマリー")
@@ -1224,6 +1242,13 @@ def main():
     finally:
         # シグナルハンドラをリセット
         signal.signal(signal.SIGINT, signal.SIG_DFL)
+
+    print("\n🧹 セグメント検索キャッシュをクリア中...")
+    try:
+        clear_segment_search_cache()
+        print("✅ セグメント検索キャッシュをクリアしました")
+    except Exception as e:
+        print(f"⚠️  キャッシュクリア失敗: {str(e)}")
 
     # 結果サマリー
     print("\n" + "=" * 60)

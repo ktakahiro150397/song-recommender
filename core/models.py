@@ -148,6 +148,41 @@ class ProcessedCollection(Base):
         return f"<ProcessedCollection(song_id='{self.song_id}', collection_name='{self.collection_name}')>"
 
 
+class SegmentSearchCache(Base):
+    """セグメント類似検索のキャッシュ"""
+
+    __tablename__ = "segment_search_cache"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    collection_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    song_id: Mapped[str] = mapped_column(String(500), nullable=False)
+    params_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    results_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=datetime.now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=datetime.now
+    )
+
+    __table_args__ = (
+        Index(
+            "idx_segment_search_cache_unique",
+            "collection_name",
+            "song_id",
+            "params_hash",
+            unique=True,
+        ),
+        Index("idx_segment_search_cache_updated", "updated_at"),
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<SegmentSearchCache(collection_name='{self.collection_name}', "
+            f"song_id='{self.song_id}', params_hash='{self.params_hash}')>"
+        )
+
+
 class PlaylistHeader(Base):
     """作成済みプレイリストのヘッダー情報"""
 

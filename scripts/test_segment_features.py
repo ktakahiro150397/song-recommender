@@ -109,9 +109,14 @@ def print_similarity_results(
     top_k: int,
     exclude_source_song_id: str | None = None,
 ) -> list[tuple[str, int, float]]:
-    where_filter = None
+    where_filter: dict | None = {"excluded_from_search": {"$ne": True}}
     if exclude_source_song_id:
-        where_filter = {"source_song_id": {"$ne": exclude_source_song_id}}
+        where_filter = {
+            "$and": [
+                {"excluded_from_search": {"$ne": True}},
+                {"source_song_id": {"$ne": exclude_source_song_id}},
+            ]
+        }
 
     results = db.search_similar(
         query_embedding=query_embedding, n_results=top_k + 1, where=where_filter

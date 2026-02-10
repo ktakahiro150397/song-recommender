@@ -14,6 +14,7 @@ from collections import Counter
 from core.db_manager import SongVectorDB
 from core import song_metadata_db
 from core import playlist_db
+from core import segment_search_cache
 from core.ui_styles import style_distance_column, style_distance_value
 from create_playlist_from_chain import (
     chain_search_to_list,
@@ -236,7 +237,31 @@ def search_similar_songs_from_segments(
     skip_end_seconds: float = 10.0,
     distance_max: float = 0.1,
     exclude_same_song: bool = True,
+    collection_name: str | None = None,
+    use_cache: bool = True,
 ) -> list[tuple[str, float, int, float, float]]:
+    cache_key = None
+    if use_cache and collection_name:
+        cache_params = {
+            "version": 2,
+            "filename": filename,
+            "n_results": int(n_results),
+            "search_topk": int(search_topk),
+            "max_seconds": float(max_seconds),
+            "skip_seconds": float(skip_seconds),
+            "skip_end_seconds": float(skip_end_seconds),
+            "distance_max": float(distance_max),
+            "exclude_same_song": bool(exclude_same_song),
+        }
+        cache_key = segment_search_cache.build_params_hash(cache_params)
+        cached = segment_search_cache.get_segment_search_cache(
+            collection_name=collection_name,
+            song_id=filename,
+            params_hash=cache_key,
+        )
+        if cached is not None:
+            return cached
+
     segment_items = fetch_segments_by_filename(db, filename)
     segment_items = filter_segments_for_search(
         segment_items,
@@ -263,17 +288,25 @@ def search_similar_songs_from_segments(
     total_query_segments = len(segment_items)
 
     for seg_list_index, (seg_id, embedding, metadata) in enumerate(segment_items):
+        requested_topk = max(1, int(search_topk))
+        query_n_results = requested_topk + (0 if exclude_same_song else 1)
         results = db.search_similar(
             query_embedding=embedding,
-            n_results=max(1, int(search_topk)) + 1,
+            n_results=query_n_results,
             where=where_filter,
         )
         ids = results.get("ids", [[]])[0]
         distances = results.get("distances", [[]])[0]
 
+        filtered_results: list[tuple[str, float]] = []
         for song_id, distance in zip(ids, distances):
             if song_id == seg_id:
                 continue
+            filtered_results.append((song_id, distance))
+            if len(filtered_results) >= requested_topk:
+                break
+
+        for song_id, distance in filtered_results:
             base_song_id = song_id.split("::", 1)[0]
             segment_key = metadata.get("segment_index")
             if not isinstance(segment_key, int):
@@ -348,6 +381,14 @@ def search_similar_songs_from_segments(
         final_score = final_score_map.get(song_id, 0.0)
         results.append((song_id, final_score, count, coverage, density_norm))
 
+    if cache_key and collection_name:
+        segment_search_cache.save_segment_search_cache(
+            collection_name=collection_name,
+            song_id=filename,
+            params_hash=cache_key,
+            results=results,
+        )
+
     return results
 
 
@@ -369,6 +410,7 @@ def build_source_dir_candidates(source_dir_names: list[str]) -> set[str]:
 
 def chain_search_from_segments_to_list(
     segment_db: SongVectorDB,
+    collection_name: str,
     start_filename: str,
     n_songs: int,
     source_dir_filters: list[str] | None,
@@ -419,6 +461,7 @@ def chain_search_from_segments_to_list(
             skip_end_seconds=skip_end_seconds,
             distance_max=distance_max,
             exclude_same_song=True,
+            collection_name=collection_name,
         )
         if not candidates:
             break
@@ -724,6 +767,7 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
                         skip_end_seconds=10.0,
                         distance_max=0.1,
                         exclude_same_song=True,
+                        collection_name=collection,
                     )
                     if segment_results:
                         segment_ids = [song_id for song_id, *_ in segment_results]
@@ -1029,6 +1073,7 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
                     )
                     chain_results = chain_search_from_segments_to_list(
                         segment_db=segment_db,
+                        collection_name=segment_collection,
                         start_filename=selected_song,
                         n_songs=chain_search_count,
                         source_dir_filters=source_dir_filter_selected,

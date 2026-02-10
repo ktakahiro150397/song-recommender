@@ -54,31 +54,52 @@ def fetch_segments_by_filename(
     return segment_items
 
 
-def filter_segments_by_duration(
+def filter_segments_for_search(
     segment_items: list[tuple[str, list[float], dict]],
     max_duration_sec: float,
+    skip_initial_sec: float,
+    skip_end_sec: float,
 ) -> list[tuple[str, list[float], dict]]:
-    if max_duration_sec <= 0:
+    if max_duration_sec <= 0 and skip_initial_sec <= 0 and skip_end_sec <= 0:
         return segment_items
+
+    max_end_sec = 0.0
+    if skip_end_sec > 0:
+        for _, _, metadata in segment_items:
+            end_sec = metadata.get("segment_end_sec")
+            if end_sec is None:
+                continue
+            max_end_sec = max(max_end_sec, float(end_sec))
+        if max_end_sec <= 0:
+            max_end_sec = 0.0
 
     filtered_items: list[tuple[str, list[float], dict]] = []
     for seg_id, embedding, metadata in segment_items:
         start_sec = metadata.get("segment_start_sec")
+        end_sec = metadata.get("segment_end_sec")
         if start_sec is None:
             filtered_items.append((seg_id, embedding, metadata))
             continue
-        if float(start_sec) < max_duration_sec:
+        start_sec = float(start_sec)
+        if skip_end_sec > 0 and end_sec is not None and max_end_sec > 0:
+            if float(end_sec) > max_end_sec - skip_end_sec:
+                continue
+        if skip_initial_sec > 0 and start_sec < skip_initial_sec:
+            continue
+        if max_duration_sec <= 0 or start_sec < max_duration_sec:
             filtered_items.append((seg_id, embedding, metadata))
 
     return filtered_items
 
 
-def normalize_distance_score(distance: float) -> float:
+def normalize_distance_score(distance: float, max_distance: float = 0.1) -> float:
     if distance <= 0:
         return 100.0
-    if distance >= 0.01:
+    if max_distance <= 0:
         return 0.0
-    return 100.0 * (1.0 - (distance / 0.01))
+    if distance >= max_distance:
+        return 0.0
+    return 100.0 * (1.0 - (distance / max_distance))
 
 
 def print_similarity_results(
@@ -253,6 +274,12 @@ def main() -> None:
         help="Filename to load segments from collection and run similarity search",
     )
     parser.add_argument(
+        "--search-collection",
+        type=str,
+        default=None,
+        help="Collection name for search (default: same as --collection)",
+    )
+    parser.add_argument(
         "--search-topk",
         type=int,
         default=5,
@@ -265,9 +292,27 @@ def main() -> None:
         help="Max seconds from start to include in search (default: 120)",
     )
     parser.add_argument(
+        "--search-skip-seconds",
+        type=float,
+        default=10.0,
+        help="Skip initial seconds in search (default: 10)",
+    )
+    parser.add_argument(
+        "--search-skip-end-seconds",
+        type=float,
+        default=10.0,
+        help="Skip ending seconds in search (default: 10)",
+    )
+    parser.add_argument(
         "--exclude-same-song",
         action="store_true",
         help="Exclude segments from the same source song in similarity search",
+    )
+    parser.add_argument(
+        "--distance-max",
+        type=float,
+        default=0.1,
+        help="Distance threshold for zero score (default: 0.1)",
     )
 
     args = parser.parse_args()
@@ -287,10 +332,14 @@ def main() -> None:
     source_dir = args.source_dir
 
     if args.search_filename:
-        db = SongVectorDB(collection_name=collection_name, distance_fn="cosine")
+        search_collection = args.search_collection or collection_name
+        db = SongVectorDB(collection_name=search_collection, distance_fn="cosine")
         segment_items = fetch_segments_by_filename(db, args.search_filename)
-        segment_items = filter_segments_by_duration(
-            segment_items, float(args.search_max_seconds)
+        segment_items = filter_segments_for_search(
+            segment_items,
+            max_duration_sec=float(args.search_max_seconds),
+            skip_initial_sec=float(args.search_skip_seconds),
+            skip_end_sec=float(args.search_skip_end_seconds),
         )
         if not segment_items:
             print(f"No segments found for filename: {args.search_filename}")
@@ -301,16 +350,19 @@ def main() -> None:
         print(f"   Filename: {args.search_filename}")
         print(f"   Segments: {len(segment_items)}")
         print(f"   Mode: {mode}")
-        print(f"   Collection: {collection_name}")
+        print(f"   Collection: {search_collection}")
         print(f"   TopK: {args.search_topk}")
         print(f"   Max seconds: {args.search_max_seconds}")
         print("=" * 60)
 
         similar_id_counter: Counter[str] = Counter()
         similar_score_counter: Counter[str] = Counter()
-        rank_weights = {1: 1, 2: 1, 3: 1, 4: 1, 5: 1}
+        song_segment_hits: dict[str, set[int]] = {}
+        song_density_hits: Counter[str] = Counter()
+        rank_weights = None
+        total_query_segments = len(segment_items)
 
-        for seg_id, embedding, metadata in segment_items:
+        for seg_list_index, (seg_id, embedding, metadata) in enumerate(segment_items):
             seg_index = metadata.get("segment_index")
             start_sec = metadata.get("segment_start_sec")
             end_sec = metadata.get("segment_end_sec")
@@ -325,9 +377,16 @@ def main() -> None:
                 ),
             )
             for song_id, rank, distance in result_items:
+                base_song_id = song_id.split("::", 1)[0]
+                segment_key = (
+                    int(seg_index) if isinstance(seg_index, int) else seg_list_index
+                )
+                song_segment_hits.setdefault(base_song_id, set()).add(segment_key)
+                if distance < args.distance_max:
+                    song_density_hits.update([base_song_id])
                 similar_id_counter.update([song_id])
-                weight = rank_weights.get(rank, 0)
-                distance_score = normalize_distance_score(distance)
+                weight = 1 if rank_weights is None else rank_weights.get(rank, 0)
+                distance_score = normalize_distance_score(distance, args.distance_max)
                 similar_score_counter[song_id] += weight * distance_score
 
         if similar_id_counter:
@@ -343,9 +402,31 @@ def main() -> None:
 
             print("\n" + "=" * 60)
             print(f"Aggregated similar songs : {args.search_filename}")
+
+            final_score_map: dict[str, float] = {}
+            normalized_topk = max(1, int(args.search_topk))
+            for song_id in song_counter.keys():
+                score = song_score_counter.get(song_id, 0.0)
+                coverage_hits = len(song_segment_hits.get(song_id, set()))
+                coverage = (
+                    coverage_hits / total_query_segments
+                    if total_query_segments > 0
+                    else 0.0
+                )
+                density_hits = song_density_hits.get(song_id, 0)
+                density_norm = (
+                    density_hits / (total_query_segments * normalized_topk)
+                    if total_query_segments > 0
+                    else 0.0
+                )
+                final_score_map[song_id] = (
+                    score * (0.5 + 0.5 * coverage) * (0.5 + 0.5 * density_norm)
+                )
+
             sorted_songs = sorted(
                 song_counter.keys(),
                 key=lambda sid: (
+                    final_score_map.get(sid, 0),
                     song_score_counter.get(sid, 0),
                     song_counter.get(sid, 0),
                 ),
@@ -354,7 +435,22 @@ def main() -> None:
             for song_id in sorted_songs:
                 count = song_counter.get(song_id, 0)
                 score = song_score_counter.get(song_id, 0.0)
-                print(f"   score={score:7.1f} | count={count:3d} | {song_id}")
+                coverage_hits = len(song_segment_hits.get(song_id, set()))
+                coverage = (
+                    coverage_hits / total_query_segments
+                    if total_query_segments > 0
+                    else 0.0
+                )
+                density_hits = song_density_hits.get(song_id, 0)
+                density_norm = (
+                    density_hits / (total_query_segments * normalized_topk)
+                    if total_query_segments > 0
+                    else 0.0
+                )
+                final_score = final_score_map.get(song_id, 0.0)
+                print(
+                    f"   final={final_score:7.1f} | score={score:7.1f} | count={count:3d} | cov={coverage:0.2f} | den={density_norm:0.2f} | {song_id}"
+                )
         return
 
     total_added = 0

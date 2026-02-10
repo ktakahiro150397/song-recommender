@@ -147,8 +147,18 @@ class FeatureExtractor:
         mfcc_mean = np.mean(mfcc, axis=1)
 
         # MFCC Delta（20次元、時間平均）- 音色の時間変化
-        mfcc_delta = librosa.feature.delta(mfcc)
-        mfcc_delta_mean = np.mean(mfcc_delta, axis=1)
+        n_frames = mfcc.shape[1]
+        if n_frames < 3:
+            mfcc_delta_mean = np.zeros(mfcc.shape[0], dtype=np.float32)
+        else:
+            delta_width = min(9, n_frames)
+            if delta_width % 2 == 0:
+                delta_width -= 1
+            if delta_width < 3:
+                mfcc_delta_mean = np.zeros(mfcc.shape[0], dtype=np.float32)
+            else:
+                mfcc_delta = librosa.feature.delta(mfcc, width=delta_width)
+                mfcc_delta_mean = np.mean(mfcc_delta, axis=1)
 
         # ===== 和声・調性関連 =====
         # クロマグラム（12次元、時間平均）

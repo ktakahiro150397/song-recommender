@@ -393,19 +393,21 @@ def register_segments_for_file(
     if not segment_models:
         return
 
+    print(f"   [debug] セグメント登録開始: {filename}")
     audio_path = Path(file_path)
     if not audio_path.exists():
         print(f"   ⚠️  セグメント登録スキップ: {file_path} が見つかりません")
         return
 
     for segment_model in segment_models:
-        segment_id0 = _build_segment_id(filename, 0)
-        existing = segment_model.db.get_song(segment_id0, include_embedding=False)
-        if existing is not None:
+        # MySQLで処理済みチェック
+        if song_metadata_db.is_processed(filename, segment_model.collection):
             print(
-                f"   [debug] segments: {segment_model.collection} 既に登録済み - スキップ"
+                f"   [debug] segments: {segment_model.collection} 既に登録済み (MySQL) - スキップ ({filename})"
             )
             continue
+
+        # ChromaDBアクセスを避けるため、MySQLのみを信頼
 
         waveform = _load_audio_mono(audio_path, segment_model.target_sr)
         segments = _split_segments(waveform, segment_seconds, segment_model.target_sr)
@@ -445,7 +447,12 @@ def register_segments_for_file(
             segment_items=segment_items,
             source_dir=normalized_dir,
         )
-        print(f"   [debug] segments: {segment_model.collection} 追加={added}")
+        if added > 0:
+            # MySQLに処理済みとしてマーク
+            song_metadata_db.mark_as_processed(filename, segment_model.collection)
+        print(
+            f"   [debug] segments: {segment_model.collection} 追加={added} ({filename})"
+        )
 
 
 def download_youtube_audio(video_id: str, output_dir: str) -> tuple[bool, str, str]:

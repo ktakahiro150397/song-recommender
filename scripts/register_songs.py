@@ -407,7 +407,18 @@ def register_segments_for_file(
             )
             continue
 
-        # ChromaDBアクセスを避けるため、MySQLのみを信頼
+        # ChromaDBでもチェック（差異検出のため）
+        # segment_id0 = _build_segment_id(filename, 0)
+        # existing_in_chroma = segment_model.db.get_song(
+        #     segment_id0, include_embedding=False
+        # )
+        # if existing_in_chroma is not None:
+        #     print(
+        #         f"   ⚠️  segments: {segment_model.collection} ChromaDBに存在するがMySQLに未登録 - MySQLに追加してスキップ ({filename})"
+        #     )
+        #     # MySQLに追加（再同期）
+        #     song_metadata_db.mark_as_processed(filename, segment_model.collection)
+        #     continue
 
         waveform = _load_audio_mono(audio_path, segment_model.target_sr)
         segments = _split_segments(waveform, segment_seconds, segment_model.target_sr)

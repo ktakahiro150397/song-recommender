@@ -9,6 +9,7 @@ import pandas as pd
 from pathlib import Path
 import re
 import random
+from collections import Counter
 
 from core.db_manager import SongVectorDB
 from core import song_metadata_db
@@ -153,6 +154,197 @@ def get_random_songs(db: SongVectorDB, limit: int = 50) -> list[tuple[str, dict]
         ]
 
     return result
+
+
+def fetch_segments_by_filename(
+    db: SongVectorDB, filename: str
+) -> list[tuple[str, list[float], dict]]:
+    result = db.collection.get(  # type: ignore[attr-defined]
+        where={"source_song_id": filename},
+        include=["embeddings", "metadatas"],
+    )
+
+    segment_items: list[tuple[str, list[float], dict]] = []
+    for seg_id, embedding, metadata in zip(
+        result.get("ids", []),
+        result.get("embeddings", []),
+        result.get("metadatas", []),
+    ):
+        if embedding is None or metadata is None:
+            continue
+        segment_items.append((seg_id, embedding, metadata))
+
+    segment_items.sort(key=lambda item: item[2].get("segment_index", 0))
+    return segment_items
+
+
+def filter_segments_for_search(
+    segment_items: list[tuple[str, list[float], dict]],
+    max_duration_sec: float,
+    skip_initial_sec: float,
+    skip_end_sec: float,
+) -> list[tuple[str, list[float], dict]]:
+    if max_duration_sec <= 0 and skip_initial_sec <= 0 and skip_end_sec <= 0:
+        return segment_items
+
+    max_end_sec = 0.0
+    if skip_end_sec > 0:
+        for _, _, metadata in segment_items:
+            end_sec = metadata.get("segment_end_sec")
+            if end_sec is None:
+                continue
+            max_end_sec = max(max_end_sec, float(end_sec))
+        if max_end_sec <= 0:
+            max_end_sec = 0.0
+
+    filtered_items: list[tuple[str, list[float], dict]] = []
+    for seg_id, embedding, metadata in segment_items:
+        start_sec = metadata.get("segment_start_sec")
+        end_sec = metadata.get("segment_end_sec")
+        if start_sec is None:
+            filtered_items.append((seg_id, embedding, metadata))
+            continue
+        start_sec = float(start_sec)
+        if skip_end_sec > 0 and end_sec is not None and max_end_sec > 0:
+            if float(end_sec) > max_end_sec - skip_end_sec:
+                continue
+        if skip_initial_sec > 0 and start_sec < skip_initial_sec:
+            continue
+        if max_duration_sec <= 0 or start_sec < max_duration_sec:
+            filtered_items.append((seg_id, embedding, metadata))
+
+    return filtered_items
+
+
+def normalize_distance_score(distance: float, max_distance: float = 0.1) -> float:
+    if distance <= 0:
+        return 100.0
+    if max_distance <= 0:
+        return 0.0
+    if distance >= max_distance:
+        return 0.0
+    return 100.0 * (1.0 - (distance / max_distance))
+
+
+def search_similar_songs_from_segments(
+    db: SongVectorDB,
+    filename: str,
+    n_results: int,
+    search_topk: int = 5,
+    max_seconds: float = 120.0,
+    skip_seconds: float = 10.0,
+    skip_end_seconds: float = 10.0,
+    distance_max: float = 0.1,
+    exclude_same_song: bool = True,
+) -> list[tuple[str, float, int, float, float]]:
+    segment_items = fetch_segments_by_filename(db, filename)
+    segment_items = filter_segments_for_search(
+        segment_items,
+        max_duration_sec=float(max_seconds),
+        skip_initial_sec=float(skip_seconds),
+        skip_end_sec=float(skip_end_seconds),
+    )
+    if not segment_items:
+        return []
+
+    where_filter: dict | None = {"excluded_from_search": {"$ne": True}}
+    if exclude_same_song:
+        where_filter = {
+            "$and": [
+                {"excluded_from_search": {"$ne": True}},
+                {"source_song_id": {"$ne": filename}},
+            ]
+        }
+
+    similar_id_counter: Counter[str] = Counter()
+    similar_score_counter: Counter[str] = Counter()
+    song_segment_hits: dict[str, set[int]] = {}
+    song_density_hits: Counter[str] = Counter()
+    total_query_segments = len(segment_items)
+
+    for seg_list_index, (seg_id, embedding, metadata) in enumerate(segment_items):
+        results = db.search_similar(
+            query_embedding=embedding,
+            n_results=max(1, int(search_topk)) + 1,
+            where=where_filter,
+        )
+        ids = results.get("ids", [[]])[0]
+        distances = results.get("distances", [[]])[0]
+
+        for song_id, distance in zip(ids, distances):
+            if song_id == seg_id:
+                continue
+            base_song_id = song_id.split("::", 1)[0]
+            segment_key = metadata.get("segment_index")
+            if not isinstance(segment_key, int):
+                segment_key = seg_list_index
+            song_segment_hits.setdefault(base_song_id, set()).add(segment_key)
+            if distance < distance_max:
+                song_density_hits.update([base_song_id])
+            similar_id_counter.update([song_id])
+            distance_score = normalize_distance_score(distance, distance_max)
+            similar_score_counter[song_id] += distance_score
+
+    if not similar_id_counter:
+        return []
+
+    song_counter: Counter[str] = Counter()
+    song_score_counter: Counter[str] = Counter()
+    for segment_id, count in similar_id_counter.items():
+        song_id = segment_id.split("::", 1)[0]
+        if song_id == filename:
+            continue
+        song_counter[song_id] += count
+
+    for segment_id, score in similar_score_counter.items():
+        song_id = segment_id.split("::", 1)[0]
+        if song_id == filename:
+            continue
+        song_score_counter[song_id] += score
+
+    final_score_map: dict[str, float] = {}
+    normalized_topk = max(1, int(search_topk))
+    for song_id in song_counter.keys():
+        score = song_score_counter.get(song_id, 0.0)
+        coverage_hits = len(song_segment_hits.get(song_id, set()))
+        coverage = coverage_hits / total_query_segments if total_query_segments > 0 else 0.0
+        density_hits = song_density_hits.get(song_id, 0)
+        density_norm = (
+            density_hits / (total_query_segments * normalized_topk)
+            if total_query_segments > 0
+            else 0.0
+        )
+        final_score_map[song_id] = score * (0.5 + 0.5 * coverage) * (
+            0.5 + 0.5 * density_norm
+        )
+
+    sorted_songs = sorted(
+        song_counter.keys(),
+        key=lambda sid: (
+            final_score_map.get(sid, 0.0),
+            song_score_counter.get(sid, 0.0),
+            song_counter.get(sid, 0),
+        ),
+        reverse=True,
+    )
+
+    results: list[tuple[str, float, int, float, float]] = []
+    for song_id in sorted_songs:
+        if len(results) >= n_results:
+            break
+        count = song_counter.get(song_id, 0)
+        coverage_hits = len(song_segment_hits.get(song_id, set()))
+        coverage = coverage_hits / total_query_segments if total_query_segments > 0 else 0.0
+        density_hits = song_density_hits.get(song_id, 0)
+        density_norm = (
+            density_hits / (total_query_segments * normalized_topk)
+            if total_query_segments > 0
+            else 0.0
+        )
+        final_score = final_score_map.get(song_id, 0.0)
+        results.append((song_id, final_score, count, coverage, density_norm))
+
+    return results
 
 
 # ========== メイン画面 ==========
@@ -353,7 +545,7 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
                 ]
 
                 # 各DBから類似曲を検索
-                all_results = {}
+                all_results: dict[str, dict[str, object]] = {}
                 for db_name, db_instance in dbs:
                     song_data = db_instance.get_song(
                         selected_song, include_embedding=True
@@ -391,47 +583,140 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
                                 filtered_ids, filtered_distances
                             )
                         ]
-                        all_results[db_name] = filtered
+                        all_results[db_name] = {
+                            "type": "distance",
+                            "items": filtered,
+                        }
                     else:
-                        all_results[db_name] = []
+                        all_results[db_name] = {"type": "distance", "items": []}
+
+                segment_sources = [
+                    ("Seg AST", "songs_segments_ast"),
+                    ("Seg MERT", "songs_segments_mert"),
+                ]
+                for label, collection in segment_sources:
+                    segment_db = SongVectorDB(
+                        collection_name=collection, distance_fn="cosine"
+                    )
+                    segment_results = search_similar_songs_from_segments(
+                        db=segment_db,
+                        filename=selected_song,
+                        n_results=n_results,
+                        search_topk=5,
+                        max_seconds=120.0,
+                        skip_seconds=10.0,
+                        skip_end_seconds=10.0,
+                        distance_max=0.1,
+                        exclude_same_song=True,
+                    )
+                    if segment_results:
+                        segment_ids = [song_id for song_id, *_ in segment_results]
+                        metadata_dict = song_metadata_db.get_songs_as_dict(segment_ids)
+                        segment_items = [
+                            (
+                                song_id,
+                                score,
+                                count,
+                                coverage,
+                                density,
+                                metadata_dict.get(song_id, {}),
+                            )
+                            for song_id, score, count, coverage, density in segment_results
+                        ]
+                    else:
+                        segment_items = []
+
+                    all_results[label] = {
+                        "type": "segment",
+                        "items": segment_items,
+                    }
 
             # 各DBの結果を表示
-            tabs = st.tabs(["📊 Full", "📊 Balance", "📊 Minimal"])
+            tabs = st.tabs(
+                [
+                    "📊 Full",
+                    "📊 Balance",
+                    "📊 Minimal",
+                    "🎯 Seg AST",
+                    "🎯 Seg MERT",
+                ]
+            )
 
-            for idx, (db_name, results) in enumerate(all_results.items()):
+            for idx, (db_name, payload) in enumerate(all_results.items()):
                 with tabs[idx]:
-                    if results:
-                        result_data = []
-                        for rank, (song_id, distance, metadata) in enumerate(
-                            results, 1
-                        ):
-                            result_data.append(
-                                {
-                                    "Rank": rank,
-                                    "ファイル名": song_id,
-                                    "距離": f"{distance:.6f}",
-                                    "BPM": (
-                                        metadata.get("bpm", "") if metadata else ""
-                                    ),
-                                    "registered_at": (
-                                        metadata.get("registered_at", "")
-                                        if metadata
-                                        else ""
-                                    ),
-                                }
-                            )
+                    results = payload.get("items", [])
+                    result_type = payload.get("type")
 
-                        result_df = pd.DataFrame(result_data)
-                        # 距離列のカラム名を指定
-                        if "距離" in result_df.columns:
-                            styled_result_df = result_df.style.map(
-                                lambda val: style_distance_value(val), subset=["距離"]
+                    if results:
+                        if result_type == "segment":
+                            result_data = []
+                            for rank, (
+                                song_id,
+                                score,
+                                count,
+                                coverage,
+                                density,
+                                metadata,
+                            ) in enumerate(results, 1):
+                                result_data.append(
+                                    {
+                                        "Rank": rank,
+                                        "ファイル名": song_id,
+                                        "スコア": f"{score:.2f}",
+                                        "ヒット数": count,
+                                        "カバレッジ": f"{coverage:.2f}",
+                                        "密度": f"{density:.2f}",
+                                        "BPM": (
+                                            metadata.get("bpm", "")
+                                            if metadata
+                                            else ""
+                                        ),
+                                        "registered_at": (
+                                            metadata.get("registered_at", "")
+                                            if metadata
+                                            else ""
+                                        ),
+                                    }
+                                )
+
+                            result_df = pd.DataFrame(result_data)
+                            st.dataframe(
+                                result_df, use_container_width=True, hide_index=True
                             )
                         else:
-                            styled_result_df = result_df.style
-                        st.dataframe(
-                            styled_result_df, use_container_width=True, hide_index=True
-                        )
+                            result_data = []
+                            for rank, (song_id, distance, metadata) in enumerate(
+                                results, 1
+                            ):
+                                result_data.append(
+                                    {
+                                        "Rank": rank,
+                                        "ファイル名": song_id,
+                                        "距離": f"{distance:.6f}",
+                                        "BPM": (
+                                            metadata.get("bpm", "") if metadata else ""
+                                        ),
+                                        "registered_at": (
+                                            metadata.get("registered_at", "")
+                                            if metadata
+                                            else ""
+                                        ),
+                                    }
+                                )
+
+                            result_df = pd.DataFrame(result_data)
+                            if "距離" in result_df.columns:
+                                styled_result_df = result_df.style.map(
+                                    lambda val: style_distance_value(val),
+                                    subset=["距離"],
+                                )
+                            else:
+                                styled_result_df = result_df.style
+                            st.dataframe(
+                                styled_result_df,
+                                use_container_width=True,
+                                hide_index=True,
+                            )
                     else:
                         st.warning(f"{db_name}: 類似曲が見つかりませんでした")
 
@@ -441,7 +726,10 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
 
             # データを整形
             chart_data = {}
-            for db_name, results in all_results.items():
+            for db_name, payload in all_results.items():
+                if payload.get("type") != "distance":
+                    continue
+                results = payload.get("items", [])
                 if results:
                     distances = [dist for _, dist, _ in results]
                     chart_data[db_name] = distances
@@ -460,12 +748,16 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
                 st.subheader("📊 統計情報")
 
                 col1, col2, col3 = st.columns(3)
-                for col, (db_name, results) in zip(
-                    [col1, col2, col3], all_results.items()
-                ):
+                distance_entries = [
+                    (db_name, payload)
+                    for db_name, payload in all_results.items()
+                    if payload.get("type") == "distance"
+                ]
+                for col, (db_name, payload) in zip([col1, col2, col3], distance_entries):
                     with col:
-                        if results:
-                            distances = [dist for _, dist, _ in results]
+                        items = payload.get("items", [])
+                        if items:
+                            distances = [dist for _, dist, _ in items]
                             st.metric(
                                 f"{db_name} 平均距離",
                                 f"{sum(distances)/len(distances):.6f}",

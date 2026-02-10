@@ -22,12 +22,9 @@ uv run .\scripts\test_segment_features.py --search-filename "With you [s5-6ICR5k
 uv run .\scripts\test_segment_features.py --search-filename "幻惑SILHOUETTE (2023 Ver.) [4LznTKY7XdA].wav" --exclude-same-song --search-collection songs_segments_balance --distance-max 0.1 --search-topk 5
 
 
-
 uv run .\scripts\test_segment_features.py --search-filename "パステルカラー パスカラカラー [VyzV-6UWq8U].wav" --exclude-same-song --search-collection songs_segments_ast --distance-max 0.1
 uv run .\scripts\test_segment_features.py --search-filename "パステルカラー パスカラカラー [VyzV-6UWq8U].wav" --exclude-same-song --search-collection songs_segments_mert --distance-max 0.1
 uv run .\scripts\test_segment_features.py --search-filename "平行線の美学 [y6RIPflxByI].wav" --exclude-same-song --search-collection songs_segments_balanced --distance-max 0.1
 
 
-uv run .\scripts\test_segment_features.py --search-filename "Poison Berry Daughters [08yGaxb6jBo].wav" --exclude-same-song --search-collection songs_segments_mert
-
-uv run .\scripts\test_segment_features.py --search-filename "Forbidden Paradise [TbG6ZmWLgOo].wav" --exclude-same-song --search-collection songs_segments_mert
+uv run .\scripts\test_segment_features.py --search-filename "とある英雄たちの物語 [X3G6sqNjqgc].wav" --exclude-same-song --search-collection songs_segments_ast --distance-max 0.1 --search-topk 5

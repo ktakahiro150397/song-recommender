@@ -10,6 +10,7 @@ from datetime import datetime
 from typing import Iterable
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from core.database import get_session
 from core.models import SegmentSearchCache
@@ -104,13 +105,31 @@ def save_segment_search_cache(
             if row.created_at is None:
                 row.created_at = now
         else:
-            session.add(
-                SegmentSearchCache(
-                    collection_name=collection_name,
-                    song_id=song_id,
-                    params_hash=params_hash,
-                    results_json=payload,
-                    created_at=now,
-                    updated_at=now,
-                )
+            new_row = SegmentSearchCache(
+                collection_name=collection_name,
+                song_id=song_id,
+                params_hash=params_hash,
+                results_json=payload,
+                created_at=now,
+                updated_at=now,
             )
+            session.add(new_row)
+            try:
+                session.flush()
+            except IntegrityError:
+                session.rollback()
+                existing = (
+                    session.execute(
+                        select(SegmentSearchCache).where(
+                            SegmentSearchCache.collection_name == collection_name,
+                            SegmentSearchCache.song_id == song_id,
+                            SegmentSearchCache.params_hash == params_hash,
+                        )
+                    )
+                    .scalars()
+                    .first()
+                )
+                if not existing:
+                    raise
+                existing.results_json = payload
+                existing.updated_at = now

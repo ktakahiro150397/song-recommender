@@ -16,8 +16,10 @@ import signal
 import subprocess
 import sys
 import tempfile
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from core.db_manager import SongVectorDB
@@ -46,6 +48,20 @@ DURATION = 90  # 秒
 
 # バッチ処理設定
 BATCH_SIZE = 3  # 一度に登録する曲数（リモートDBのレイテンシ削減）
+
+# セグメント登録設定
+SEGMENT_SECONDS = 5.0
+SEGMENT_BATCH_SIZE = 16
+SEGMENT_MODELS = [
+    {
+        "collection": "songs_segments_mert",
+        "model": "m-a-p/MERT-v1-95M",
+    },
+    {
+        "collection": "songs_segments_ast",
+        "model": "MIT/ast-finetuned-audioset-10-10-0.4593",
+    },
+]
 
 
 # ========== シグナルハンドラ ==========
@@ -191,6 +207,236 @@ def get_file_size_mb(file_path: str) -> float:
         return 0.0
 
 
+@dataclass
+class SegmentModel:
+    collection: str
+    model_id: str
+    db: SongVectorDB
+    feature_extractor: object
+    model: object
+    target_sr: int
+    device: object
+
+
+def _load_segment_packages():
+    try:
+        import torch
+        import torch.nn.functional as F
+        import torchaudio
+        from transformers import AutoFeatureExtractor, AutoModel
+    except Exception as exc:
+        raise RuntimeError(
+            "Segment registration requires torch, torchaudio, and transformers. "
+            "Install CUDA-enabled torch/torchaudio and transformers."
+        ) from exc
+
+    return torch, F, torchaudio, AutoFeatureExtractor, AutoModel
+
+
+def _load_audio_mono(path: Path, target_sr: int) -> "torch.Tensor":
+    torch, _, torchaudio, _, _ = _load_segment_packages()
+    try:
+        waveform, sr = torchaudio.load(str(path))
+        if waveform.ndim == 2 and waveform.shape[0] > 1:
+            waveform = waveform.mean(dim=0, keepdim=True)
+        if sr != target_sr:
+            waveform = torchaudio.functional.resample(waveform, sr, target_sr)
+        return waveform.squeeze(0)
+    except Exception:
+        import librosa
+
+        y, _ = librosa.load(str(path), sr=target_sr, mono=True)
+        return torch.from_numpy(y)
+
+
+def _split_segments(
+    waveform: "torch.Tensor", segment_seconds: float, sr: int
+) -> list["torch.Tensor"]:
+    segment_samples = int(round(segment_seconds * sr))
+    if segment_samples <= 0:
+        raise ValueError("segment_seconds is too small for the sampling rate")
+
+    segments: list["torch.Tensor"] = []
+    for start in range(0, waveform.numel(), segment_samples):
+        end = min(start + segment_samples, waveform.numel())
+        segment = waveform[start:end]
+        if segment.numel() == 0:
+            continue
+        segments.append(segment)
+    return segments
+
+
+def _mean_pool(
+    hidden: "torch.Tensor", attention_mask: Optional["torch.Tensor"]
+) -> "torch.Tensor":
+    if attention_mask is None:
+        return hidden.mean(dim=1)
+    mask = attention_mask.unsqueeze(-1).to(hidden.dtype)
+    summed = (hidden * mask).sum(dim=1)
+    denom = mask.sum(dim=1).clamp(min=1)
+    return summed / denom
+
+
+def _infer_segment_embeddings(
+    model: object,
+    feature_extractor: object,
+    segments: list["torch.Tensor"],
+    sr: int,
+    device: "torch.device",
+    batch_size: int,
+) -> list[list[float]]:
+    torch, F, _, _, _ = _load_segment_packages()
+    embeddings: list[list[float]] = []
+    model.eval()
+
+    for i in range(0, len(segments), batch_size):
+        batch = segments[i : i + batch_size]
+        batch_np = [seg.cpu().numpy() for seg in batch]
+        inputs = feature_extractor(
+            batch_np, sampling_rate=sr, return_tensors="pt", padding=True
+        )
+        inputs = {k: v.to(device) for k, v in inputs.items()}
+
+        with torch.no_grad():
+            outputs = model(**inputs)
+
+        hidden = outputs.last_hidden_state
+        attention_mask = inputs.get("attention_mask")
+        if attention_mask is not None and attention_mask.shape[1] != hidden.shape[1]:
+            attention_mask = None
+        pooled = _mean_pool(hidden, attention_mask)
+        pooled = F.normalize(pooled, p=2, dim=1)
+        embeddings.extend(pooled.cpu().tolist())
+
+    return embeddings
+
+
+def _build_segment_id(filename: str, index: int) -> str:
+    return f"{filename}::seg_{index:04d}"
+
+
+def _add_segment_embeddings_to_db(
+    db: SongVectorDB,
+    segment_items: list[tuple[str, list[float], dict]],
+    source_dir: str | None,
+) -> int:
+    if not segment_items:
+        return 0
+
+    ids = [item[0] for item in segment_items]
+    embeddings = [item[1] for item in segment_items]
+    metadatas = []
+    for _, _, metadata in segment_items:
+        base_metadata = {"excluded_from_search": False}
+        if source_dir is not None:
+            base_metadata["source_dir"] = source_dir
+        base_metadata.update(metadata)
+        metadatas.append(base_metadata)
+
+    db.collection.add(ids=ids, embeddings=embeddings, metadatas=metadatas)  # type: ignore
+    return len(ids)
+
+
+def init_segment_models(device_preference: str = "auto") -> list[SegmentModel]:
+    torch, _, _, AutoFeatureExtractor, AutoModel = _load_segment_packages()
+
+    if device_preference == "cuda" or (
+        device_preference == "auto" and torch.cuda.is_available()
+    ):
+        device = torch.device("cuda")
+    else:
+        device = torch.device("cpu")
+
+    segment_models: list[SegmentModel] = []
+    for config in SEGMENT_MODELS:
+        feature_extractor = AutoFeatureExtractor.from_pretrained(
+            config["model"], trust_remote_code=True
+        )
+        model = AutoModel.from_pretrained(config["model"], trust_remote_code=True).to(
+            device
+        )
+        target_sr = int(getattr(feature_extractor, "sampling_rate", 16000))
+        db = SongVectorDB(collection_name=config["collection"], distance_fn="cosine")
+        segment_models.append(
+            SegmentModel(
+                collection=config["collection"],
+                model_id=config["model"],
+                db=db,
+                feature_extractor=feature_extractor,
+                model=model,
+                target_sr=target_sr,
+                device=device,
+            )
+        )
+
+    return segment_models
+
+
+def register_segments_for_file(
+    file_path: str,
+    filename: str,
+    normalized_dir: str,
+    segment_models: list[SegmentModel],
+    segment_seconds: float = SEGMENT_SECONDS,
+) -> None:
+    if not segment_models:
+        return
+
+    audio_path = Path(file_path)
+    if not audio_path.exists():
+        print(f"   ⚠️  セグメント登録スキップ: {file_path} が見つかりません")
+        return
+
+    for segment_model in segment_models:
+        segment_id0 = _build_segment_id(filename, 0)
+        existing = segment_model.db.get_song(segment_id0, include_embedding=False)
+        if existing is not None:
+            print(
+                f"   [debug] segments: {segment_model.collection} 既に登録済み - スキップ"
+            )
+            continue
+
+        waveform = _load_audio_mono(audio_path, segment_model.target_sr)
+        segments = _split_segments(waveform, segment_seconds, segment_model.target_sr)
+        if not segments:
+            print(f"   ⚠️  セグメントが生成できません: {filename}")
+            continue
+
+        embeddings = _infer_segment_embeddings(
+            model=segment_model.model,
+            feature_extractor=segment_model.feature_extractor,
+            segments=segments,
+            sr=segment_model.target_sr,
+            device=segment_model.device,
+            batch_size=SEGMENT_BATCH_SIZE,
+        )
+
+        total_duration = len(waveform) / segment_model.target_sr
+        segment_items: list[tuple[str, list[float], dict]] = []
+        for index, embedding in enumerate(embeddings):
+            start_sec = index * segment_seconds
+            end_sec = min(start_sec + segment_seconds, total_duration)
+            metadata = {
+                "segment_index": index,
+                "segment_start_sec": round(start_sec, 3),
+                "segment_end_sec": round(end_sec, 3),
+                "segment_seconds": round(segment_seconds, 3),
+                "source_song_id": filename,
+                "source_path": str(audio_path),
+                "model": segment_model.model_id,
+            }
+            segment_items.append(
+                (_build_segment_id(filename, index), embedding, metadata)
+            )
+
+        added = _add_segment_embeddings_to_db(
+            db=segment_model.db,
+            segment_items=segment_items,
+            source_dir=normalized_dir,
+        )
+        print(f"   [debug] segments: {segment_model.collection} 追加={added}")
+
+
 def download_youtube_audio(video_id: str, output_dir: str) -> tuple[bool, str, str]:
     """
     yt-dlpを使用してYouTube動画から音声をダウンロード
@@ -304,6 +550,9 @@ def process_youtube_queue(parallel_mode: str = "none") -> None:
             print(f"   ❌ DB初期化エラー: {config['collection']} - {str(e)}")
             raise
 
+    print("📦 セグメントモデルを初期化中...")
+    segment_models = init_segment_models()
+
     # 一時ディレクトリを作成
     temp_dir = tempfile.mkdtemp(prefix="youtube_audio_")
     print(f"\n   一時ディレクトリ: {temp_dir}\n")
@@ -400,6 +649,17 @@ def process_youtube_queue(parallel_mode: str = "none") -> None:
                     else:
                         print(f"   [debug] DB登録スキップ: {db.collection.name}")
 
+                # セグメントDB登録
+                try:
+                    register_segments_for_file(
+                        file_path=file_path,
+                        filename=filename,
+                        normalized_dir=normalized_dir,
+                        segment_models=segment_models,
+                    )
+                except Exception as e:
+                    print(f"   ⚠️  セグメント登録エラー: {str(e)}")
+
                 if registered:
                     print(f"   ✅ DB登録成功 (3DBに登録)")
                     queue_db.mark_as_processed(video_id)
@@ -446,6 +706,8 @@ def process_youtube_queue(parallel_mode: str = "none") -> None:
 
     for db, _, mode in dbs_and_extractors:
         print(f"   DB ({mode}): {db.count()} 曲")
+    for segment_model in segment_models:
+        print(f"   DB ({segment_model.collection}): {segment_model.db.count()} 曲")
 
     if _interrupted:
         print("\n⚠️  処理が中断されました")
@@ -491,7 +753,7 @@ def add_song(
         return False, None, None
 
     collection_name = db.collection.name
-    
+
     # ステップ1: MySQLメタデータの確認と登録（最初のDB登録時のみ）
     metadata_exists = False
     if not skip_mysql:
@@ -514,10 +776,10 @@ def add_song(
                         f"   [debug] add_song: YouTubeID {youtube_id} は既に存在 - スキップ"
                     )
                     return False, None, None
-            
+
             # メタデータがない場合は登録
             print(f"   [debug] add_song: MySQL側へのメタデータ登録開始")
-            
+
             # BPMを抽出（まだ抽出されていない場合）
             if bpm is None:
                 print(f"   [debug] add_song: BPM抽出のため特徴量抽出開始")
@@ -528,18 +790,18 @@ def add_song(
                 except Exception as e:
                     print(f"   ⚠️  BPM抽出エラー ({filename}): {str(e)}")
                     bpm = None
-            
+
             song_title = (
                 song_title_override
                 if song_title_override
                 else extract_song_title(filename)
             )
             _, ext = os.path.splitext(filename)
-            
+
             # artist_nameが指定されていない場合は、normalized_dirを使用
             if artist_name is None:
                 artist_name = normalized_dir
-            
+
             song_metadata_db.add_song(
                 song_id=filename,
                 filename=filename,
@@ -555,7 +817,9 @@ def add_song(
             print(f"   [debug] add_song: MySQL側へのメタデータ登録完了")
             metadata_exists = True
     else:
-        print(f"   [debug] add_song: MySQL存在チェック スキップ (skip_mysql={skip_mysql})")
+        print(
+            f"   [debug] add_song: MySQL存在チェック スキップ (skip_mysql={skip_mysql})"
+        )
         metadata_exists = True  # skip_mysqlの場合は既に存在すると仮定
 
     # ステップ2: ベクトルDBの処理済みチェック
@@ -635,7 +899,7 @@ def prepare_song_data(
         song_title_override if song_title_override else extract_song_title(filename)
     )
     _, ext = os.path.splitext(filename)
-    
+
     # artist_nameが指定されていない場合は、normalized_dirを使用
     if artist_name is None:
         artist_name = normalized_dir
@@ -654,7 +918,9 @@ def prepare_song_data(
 
 def add_songs_batch(
     db: SongVectorDB,
-    song_data_list: list[tuple[str, list[float], str, str, str, str, float, float | None]],
+    song_data_list: list[
+        tuple[str, list[float], str, str, str, str, float, float | None]
+    ],
     normalized_dir: str,
     skip_mysql: bool = False,
 ) -> int:
@@ -813,6 +1079,9 @@ def main():
             print(f"   ❌ DB初期化エラー: {config['collection']} - {str(e)}")
             raise
 
+    print("📦 セグメントモデルを初期化中...")
+    segment_models = init_segment_models()
+
     print()
 
     total_added = 0
@@ -937,6 +1206,18 @@ def main():
                         pass
                         # print(f"    すべて登録済み ({skipped_count} 曲スキップ)")
 
+                    # セグメントDB登録（既存曲もチェックして不足分を追加）
+                    for file_path, filename, normalized_dir in batch_files:
+                        try:
+                            register_segments_for_file(
+                                file_path=file_path,
+                                filename=filename,
+                                normalized_dir=normalized_dir,
+                                segment_models=segment_models,
+                            )
+                        except Exception as e:
+                            print(f"    ⚠️  セグメント登録エラー: {str(e)}")
+
                     # バッチをクリア
                     batch_files = []
 
@@ -955,6 +1236,8 @@ def main():
 
     for db, _, mode in dbs_and_extractors:
         print(f"   DB ({mode}): {db.count()} 曲")
+    for segment_model in segment_models:
+        print(f"   DB ({segment_model.collection}): {segment_model.db.count()} 曲")
 
     if _interrupted:
         print("\n⚠️  処理が中断されました")

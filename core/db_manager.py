@@ -68,6 +68,7 @@ class SongVectorDB:
         embedding: list[float],
         excluded_from_search: bool = False,
         source_dir: str | None = None,
+        metadata: dict | None = None,
     ) -> None:
         """
         楽曲をDBに登録する（ベクトルと最小限のメタデータのみ）
@@ -77,14 +78,17 @@ class SongVectorDB:
             embedding: 音声特徴量ベクトル
             excluded_from_search: 検索除外フラグ（デフォルト: False）
             source_dir: ソースディレクトリ（オプション）
+            metadata: 追加メタデータ（オプション）
         """
-        metadata = {"excluded_from_search": excluded_from_search}
+        base_metadata = {"excluded_from_search": excluded_from_search}
         if source_dir is not None:
-            metadata["source_dir"] = source_dir
+            base_metadata["source_dir"] = source_dir
+        if metadata is not None:
+            base_metadata.update(metadata)
         self.collection.add(
             ids=[song_id],
             embeddings=[embedding],
-            metadatas=[metadata],
+            metadatas=[base_metadata],
         )
 
     def add_songs(

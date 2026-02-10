@@ -136,14 +136,29 @@ class FeatureExtractor:
         # 音声ファイル読み込み
         y, sr = librosa.load(str(audio_path), sr=self.sr, duration=self.duration)
 
+        return self._extract_from_audio(y, sr)
+
+    def _extract_from_audio(self, y: np.ndarray, sr: int) -> AudioFeatures:
+        """波形配列から特徴量を抽出する"""
+
         # ===== MFCC関連 =====
         # MFCC（20次元、時間平均）
         mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=20)
         mfcc_mean = np.mean(mfcc, axis=1)
 
         # MFCC Delta（20次元、時間平均）- 音色の時間変化
-        mfcc_delta = librosa.feature.delta(mfcc)
-        mfcc_delta_mean = np.mean(mfcc_delta, axis=1)
+        n_frames = mfcc.shape[1]
+        if n_frames < 3:
+            mfcc_delta_mean = np.zeros(mfcc.shape[0], dtype=np.float32)
+        else:
+            delta_width = min(9, n_frames)
+            if delta_width % 2 == 0:
+                delta_width -= 1
+            if delta_width < 3:
+                mfcc_delta_mean = np.zeros(mfcc.shape[0], dtype=np.float32)
+            else:
+                mfcc_delta = librosa.feature.delta(mfcc, width=delta_width)
+                mfcc_delta_mean = np.mean(mfcc_delta, axis=1)
 
         # ===== 和声・調性関連 =====
         # クロマグラム（12次元、時間平均）
@@ -207,6 +222,57 @@ class FeatureExtractor:
             rms_energy=rms_mean,
             tempo=tempo_value,
         )
+
+    def extract_segments(
+        self, audio_path: str | Path, segment_seconds: float = 5.0
+    ) -> list[AudioFeatures]:
+        """
+        音声ファイルを指定秒数ごとに区切って特徴量を抽出する
+
+        Args:
+            audio_path: 音声ファイルのパス
+            segment_seconds: 区切り秒数（デフォルト5秒）
+
+        Returns:
+            各セグメントの特徴量リスト
+        """
+        if segment_seconds <= 0:
+            raise ValueError("segment_seconds must be positive")
+
+        y, sr = librosa.load(str(audio_path), sr=self.sr, duration=self.duration)
+        segment_samples = int(round(segment_seconds * sr))
+        if segment_samples <= 0:
+            raise ValueError("segment_seconds is too small for the sampling rate")
+
+        features_list: list[AudioFeatures] = []
+        for start in range(0, len(y), segment_samples):
+            end = min(start + segment_samples, len(y))
+            segment = y[start:end]
+            if segment.size == 0:
+                continue
+            features_list.append(self._extract_from_audio(segment, sr))
+
+        return features_list
+
+    def extract_segments_to_vectors(
+        self,
+        audio_path: str | Path,
+        segment_seconds: float = 5.0,
+        mode: FeatureMode | None = None,
+    ) -> list[list[float]]:
+        """
+        音声ファイルを指定秒数ごとに区切って特徴量ベクトルを返す
+
+        Args:
+            audio_path: 音声ファイルのパス
+            segment_seconds: 区切り秒数（デフォルト5秒）
+            mode: 特徴量モード（Noneの場合はコンストラクタで指定したモード）
+
+        Returns:
+            各セグメントの特徴量ベクトル
+        """
+        features_list = self.extract_segments(audio_path, segment_seconds)
+        return [features.to_vector(mode or self.mode) for features in features_list]
 
     def extract_to_vector(
         self, audio_path: str | Path, mode: FeatureMode | None = None

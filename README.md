@@ -117,7 +117,11 @@ song-recommender/
 ### インストール
 
 ```bash
+# Web/検索だけの最小構成
 uv sync
+
+# セグメント登録（MERT/AST など）も使う場合
+uv sync --extra segment
 ```
 
 ---

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from typing import Generic, Optional, TypeVar
-from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -15,12 +14,15 @@ from core.database import get_session
 from core.models import PlaylistHeader as PlaylistHeaderModel, ProcessedCollection
 from core.song_queue_db import SongQueueDB
 from core.user_db import get_display_names_by_subs
+from observability import configure_logging, get_request_id, setup_observability
 
+configure_logging()
 app = FastAPI(
     title="Song Recommender API",
     version="0.1.0",
     description="Operational endpoints backing the Next.js dashboard",
 )
+setup_observability(app)
 
 song_queue_db_client = SongQueueDB()
 channel_db_client = ChannelDB()
@@ -33,7 +35,7 @@ STATS_TOP_LIMIT = 10
 
 
 class ResponseMeta(BaseModel):
-    request_id: str = Field(default_factory=lambda: uuid4().hex)
+    request_id: str = Field(default_factory=get_request_id)
     total: Optional[int] = None
     limit: Optional[int] = None
     offset: Optional[int] = None

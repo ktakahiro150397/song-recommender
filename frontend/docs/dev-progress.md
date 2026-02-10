@@ -30,9 +30,11 @@ _Last updated: 2026-02-10_
 - [ ] Review pages/components for any DTO drift after backend changes.
 
 ### Observability & Ops
-- [ ] Add structured logging/metrics around FastAPI endpoints.
-- [ ] Decide on deployment targets (container image vs. existing infra) and write runbooks.
+- [x] Add structured logging/metrics around FastAPI endpoints.
+- [x] Decide on deployment targets (container image vs. existing infra) and write runbooks.
 - [ ] Document how to seed or migrate the MySQL schema for new environments.
+
+See [docs/runbook.md](runbook.md) for the latest startup/deploy procedures and observability notes.
 
 ## Next Steps
 1. Run `uv sync` successfully (resolve any missing compilers/libs) and restart `uv run uvicorn main:app --reload --port 8001` once the DB credentials are in place.

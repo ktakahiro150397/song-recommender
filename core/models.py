@@ -290,3 +290,33 @@ class UserIdentity(Base):
 
     def __repr__(self) -> str:
         return f"<UserIdentity(user_sub='{self.user_sub}', email='{self.email}', alias='{self.alias}')>"
+
+
+class UserYouTubeMusicAuth(Base):
+    """ユーザーごとのYouTube Music OAuth認証情報"""
+
+    __tablename__ = "user_ytmusic_auth"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_sub: Mapped[str] = mapped_column(
+        String(200),
+        ForeignKey("user_identities.user_sub", ondelete="CASCADE"),
+        unique=True,
+        nullable=False,
+    )
+    # OAuth認証情報（JSON形式で保存）
+    oauth_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=datetime.now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=datetime.now, onupdate=datetime.now
+    )
+
+    __table_args__ = (
+        Index("idx_ytmusic_user_sub", "user_sub"),
+        Index("idx_ytmusic_updated_at", "updated_at"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<UserYouTubeMusicAuth(user_sub='{self.user_sub}', updated_at='{self.updated_at}')>"

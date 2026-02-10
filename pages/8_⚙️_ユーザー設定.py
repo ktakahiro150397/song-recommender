@@ -80,11 +80,47 @@ if submitted:
             st.error("表示名の更新に失敗しました")
 
 st.markdown("---")
+
+# YouTube Music 認証セクション
+st.markdown("### 🎵 YouTube Music 権限")
+
+# アクセストークンの確認
+access_token = st.user.get("access_token") if st.user else None
+
+if access_token:
+    st.success("✅ YouTube Music の権限が付与されています")
+    st.info("プレイリストを自分のYouTube Musicアカウントに作成できます。")
+else:
+    st.warning("⚠️ YouTube Music の権限が不足しています")
+    st.info(
+        """
+        **プレイリストを作成するには:**
+        
+        YouTube Music API の権限が必要です。一度ログアウトして、再度ログインしてください。
+        
+        **管理者の方へ:**
+        `.streamlit/secrets.toml` に以下の設定が必要です：
+        
+        ```toml
+        [auth]
+        expose_tokens = ["access", "id"]
+        
+        [auth.google]
+        client_kwargs = { scope = "openid profile email https://www.googleapis.com/auth/youtube" }
+        ```
+        
+        また、Google Cloud Console で YouTube Data API v3 を有効化してください。
+        """
+    )
+
+st.markdown("---")
 st.markdown("### 💡 ヒント")
 st.info(
     """
 - 表示名を設定すると、プレイリスト履歴やコメントでメールアドレスの代わりに表示されます
 - 表示名を空にすると、メールアドレスが表示されるようになります
 - 表示名は後からいつでも変更できます
+- YouTube Music の権限はログイン時に自動的に付与されます（管理者が設定済みの場合）
 """
 )
+

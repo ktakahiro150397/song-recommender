@@ -1151,15 +1151,26 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
 
             # プレイリスト作成中の場合
             if st.session_state.playlist_creating:
-                if not Path(BROWSER_FILE).exists():
-                    st.error(f"❌ {BROWSER_FILE} が見つかりません")
+                # Streamlitのログインから取得したアクセストークンを使用
+                access_token = st.user.get("access_token") if st.user else None
+                
+                if not access_token:
+                    st.error("❌ YouTube API の権限が不足しています")
+                    st.info(
+                        """
+                        プレイリスト作成には YouTube API の権限が必要です。
+                        一度ログアウトして、再度ログインしてください。
+                        
+                        管理者の方へ: `.streamlit/secrets.toml` に YouTube API のスコープが設定されているか確認してください。
+                        """
+                    )
                     st.session_state.playlist_creating = False
                 else:
                     with st.spinner(
                         "🎵 プレイリスト作成中...YouTube Musicで曲を検索しています"
                     ):
                         try:
-                            ytmusic = YTMusicManager(browser_file=BROWSER_FILE)
+                            ytmusic = YTMusicManager(access_token=access_token)
 
                             # 検索＋プレイリスト作成
                             success_count = 0

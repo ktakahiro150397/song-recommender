@@ -7,6 +7,8 @@ from typing import Literal
 from ytmusicapi import YTMusic, OAuthCredentials, setup
 import json
 import time
+import tempfile
+import os
 
 
 def load_secrets(secrets_file: str = "secrets.json") -> dict:
@@ -29,17 +31,64 @@ class YTMusicManager:
     def __init__(
         self,
         browser_file: str = "browser.json",
+        oauth_dict: dict | None = None,
+        access_token: str | None = None,
     ):
         """
         初期化
 
         Args:
-            auth_file: OAuth認証ファイルのパス
-            secrets_file: クライアントID/シークレットが含まれるJSONファイルのパス
+            browser_file: ブラウザ認証ファイルのパス（後方互換性のため保持）
+            oauth_dict: ユーザー固有のOAuth認証情報（辞書形式）
+            access_token: Streamlitの st.user から取得したアクセストークン
         """
+        if access_token:
+            # Streamlit OAuth経由のアクセストークンを使用
+            oauth_data = {
+                "access_token": access_token,
+                "token_type": "Bearer",
+                # Note: refresh_token はStreamlitのOIDCでは提供されないため、
+                # アクセストークンが期限切れになった場合はユーザーに再ログインを促す
+            }
+            
+            # セキュアな一時ファイルを作成（ファイル権限を制限）
+            tmp_fd, tmp_path = tempfile.mkstemp(suffix=".json", text=True)
+            try:
+                # ファイル権限を所有者のみ読み書き可能に設定
+                os.chmod(tmp_path, 0o600)
+                # ファイルディスクリプタを使用して書き込み
+                with os.fdopen(tmp_fd, 'w', encoding='utf-8') as f:
+                    json.dump(oauth_data, f)
+                    f.flush()
+                    os.fsync(f.fileno())
+                
+                self.yt = YTMusic(tmp_path)
+            finally:
+                # 確実に一時ファイルを削除
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+        elif oauth_dict:
+            # ユーザー固有のOAuth認証を使用（後方互換性）
+            # 一時ファイルにOAuth情報を書き込んでYTMusicに渡す
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".json", delete=False, encoding="utf-8"
+            ) as tmp:
+                json.dump(oauth_dict, tmp)
+                tmp.flush()  # データが確実に書き込まれるようにする
+                tmp_path = tmp.name
 
-        print("Using browser-based authentication")
-        self.yt = YTMusic(browser_file)
+            try:
+                self.yt = YTMusic(tmp_path)
+            finally:
+                # 一時ファイルを削除
+                if os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
+        else:
+            # 後方互換性: browser.json を使用（レガシー）
+            print("Using browser-based authentication (legacy mode)")
+            self.yt = YTMusic(browser_file)
 
     def get_library_playlists(self) -> list[dict]:
         """

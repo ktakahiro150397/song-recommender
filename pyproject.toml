@@ -18,6 +18,10 @@ dependencies = [
     "cryptography>=41.0.0",
     "plotly>=5.0.0",
     "authlib>=1.6.7",
+]
+
+[project.optional-dependencies]
+segment = [
     "transformers>=5.1.0",
     "torch>=2.10.0",
     "torchaudio>=2.10.0",

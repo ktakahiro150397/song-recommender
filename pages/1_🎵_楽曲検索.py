@@ -307,15 +307,17 @@ def search_similar_songs_from_segments(
     for song_id in song_counter.keys():
         score = song_score_counter.get(song_id, 0.0)
         coverage_hits = len(song_segment_hits.get(song_id, set()))
-        coverage = coverage_hits / total_query_segments if total_query_segments > 0 else 0.0
+        coverage = (
+            coverage_hits / total_query_segments if total_query_segments > 0 else 0.0
+        )
         density_hits = song_density_hits.get(song_id, 0)
         density_norm = (
             density_hits / (total_query_segments * normalized_topk)
             if total_query_segments > 0
             else 0.0
         )
-        final_score_map[song_id] = score * (0.5 + 0.5 * coverage) * (
-            0.5 + 0.5 * density_norm
+        final_score_map[song_id] = (
+            score * (0.5 + 0.5 * coverage) * (0.5 + 0.5 * density_norm)
         )
 
     sorted_songs = sorted(
@@ -334,7 +336,9 @@ def search_similar_songs_from_segments(
             break
         count = song_counter.get(song_id, 0)
         coverage_hits = len(song_segment_hits.get(song_id, set()))
-        coverage = coverage_hits / total_query_segments if total_query_segments > 0 else 0.0
+        coverage = (
+            coverage_hits / total_query_segments if total_query_segments > 0 else 0.0
+        )
         density_hits = song_density_hits.get(song_id, 0)
         density_norm = (
             density_hits / (total_query_segments * normalized_topk)
@@ -343,6 +347,114 @@ def search_similar_songs_from_segments(
         )
         final_score = final_score_map.get(song_id, 0.0)
         results.append((song_id, final_score, count, coverage, density_norm))
+
+    return results
+
+
+def build_source_dir_candidates(source_dir_names: list[str]) -> set[str]:
+    candidates: set[str] = set()
+    for name in source_dir_names:
+        if not name:
+            continue
+        if name.startswith("data/") or name.startswith("data\\"):
+            candidates.add(name)
+            candidates.add(name.replace("\\", "/"))
+            candidates.add(name.replace("/", "\\"))
+        else:
+            candidates.add(name)
+            candidates.add(f"data/{name}")
+            candidates.add(f"data\\{name}")
+    return candidates
+
+
+def chain_search_from_segments_to_list(
+    segment_db: SongVectorDB,
+    start_filename: str,
+    n_songs: int,
+    source_dir_filters: list[str] | None,
+    min_bpm: float | None,
+    max_bpm: float | None,
+    search_topk: int = 5,
+    max_seconds: float = 120.0,
+    skip_seconds: float = 10.0,
+    skip_end_seconds: float = 10.0,
+    distance_max: float = 0.1,
+) -> list[tuple[str, float, dict]]:
+    visited: set[str] = set()
+    results: list[tuple[str, float, dict]] = []
+    current_song_id = start_filename
+
+    source_dir_candidates: set[str] = set()
+    if source_dir_filters:
+        source_dir_candidates = build_source_dir_candidates(source_dir_filters)
+
+    start_song = song_metadata_db.get_song(current_song_id)
+    if start_song:
+        start_metadata = {
+            "filename": start_song.get("filename", ""),
+            "song_title": start_song.get("song_title", ""),
+            "artist_name": start_song.get("artist_name", ""),
+            "source_dir": start_song.get("source_dir", ""),
+            "youtube_id": start_song.get("youtube_id", ""),
+            "file_extension": start_song.get("file_extension", ""),
+            "file_size_mb": start_song.get("file_size_mb", 0.0),
+            "bpm": start_song.get("bpm"),
+            "registered_at": start_song.get("registered_at", ""),
+            "excluded_from_search": start_song.get("excluded_from_search", False),
+        }
+    else:
+        start_metadata = {}
+
+    visited.add(current_song_id)
+    results.append((current_song_id, 0.0, start_metadata))
+
+    for _ in range(n_songs - 1):
+        candidates = search_similar_songs_from_segments(
+            db=segment_db,
+            filename=current_song_id,
+            n_results=max(10, n_songs),
+            search_topk=search_topk,
+            max_seconds=max_seconds,
+            skip_seconds=skip_seconds,
+            skip_end_seconds=skip_end_seconds,
+            distance_max=distance_max,
+            exclude_same_song=True,
+        )
+        if not candidates:
+            break
+
+        candidate_ids = [song_id for song_id, *_ in candidates]
+        metadata_dict = song_metadata_db.get_songs_as_dict(candidate_ids)
+
+        next_song = None
+        for song_id, score, _, _, _ in candidates:
+            if song_id in visited:
+                continue
+            metadata = metadata_dict.get(song_id, {})
+
+            if source_dir_candidates:
+                source_dir = metadata.get("source_dir", "")
+                if source_dir not in source_dir_candidates:
+                    continue
+
+            song_bpm = metadata.get("bpm")
+            if min_bpm is not None:
+                if song_bpm is None or song_bpm < min_bpm:
+                    continue
+            if max_bpm is not None:
+                if song_bpm is None or song_bpm > max_bpm:
+                    continue
+
+            next_song = (song_id, score, metadata)
+            break
+
+        if not next_song:
+            break
+
+        next_song_id = next_song[0]
+        visited.add(next_song_id)
+        results.append(next_song)
+        current_song_id = next_song_id
 
     return results
 
@@ -363,6 +475,10 @@ if "chain_results" not in st.session_state:
     st.session_state.chain_results = None
 if "chain_selected_song" not in st.session_state:
     st.session_state.chain_selected_song = None
+if "chain_result_type" not in st.session_state:
+    st.session_state.chain_result_type = "distance"
+if "chain_search_label" not in st.session_state:
+    st.session_state.chain_search_label = "Minimal/Balance/Full"
 if "playlist_creating" not in st.session_state:
     st.session_state.playlist_creating = False
 if "selected_songs" not in st.session_state:
@@ -662,14 +778,17 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
                                     {
                                         "Rank": rank,
                                         "ファイル名": song_id,
+                                        "アーティスト": (
+                                            metadata.get("artist_name", "")
+                                            if metadata
+                                            else ""
+                                        ),
                                         "スコア": f"{score:.2f}",
                                         "ヒット数": count,
                                         "カバレッジ": f"{coverage:.2f}",
                                         "密度": f"{density:.2f}",
                                         "BPM": (
-                                            metadata.get("bpm", "")
-                                            if metadata
-                                            else ""
+                                            metadata.get("bpm", "") if metadata else ""
                                         ),
                                         "registered_at": (
                                             metadata.get("registered_at", "")
@@ -753,7 +872,9 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
                     for db_name, payload in all_results.items()
                     if payload.get("type") == "distance"
                 ]
-                for col, (db_name, payload) in zip([col1, col2, col3], distance_entries):
+                for col, (db_name, payload) in zip(
+                    [col1, col2, col3], distance_entries
+                ):
                     with col:
                         items = payload.get("items", [])
                         if items:
@@ -813,21 +934,41 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
             key="bpm_filter_mode",
         )
 
-        if st.button("🔍 連鎖検索を実行", type="primary", key="chain_search_button"):
-            with st.spinner("連鎖検索中..."):
-                # 全てのDBsを初期化（検索には全てのDBを使用）
-                db_full = SongVectorDB(
-                    collection_name="songs_full", distance_fn="cosine"
-                )
-                db_balance = SongVectorDB(
-                    collection_name="songs_balanced", distance_fn="cosine"
-                )
-                db_minimal = SongVectorDB(
-                    collection_name="songs_minimal", distance_fn="cosine"
-                )
+        button_col1, button_col2, button_col3 = st.columns(3)
+        with button_col1:
+            run_chain_mbf = st.button(
+                "🔍 連鎖検索を実行(Minimal/Balance/Full)",
+                type="primary",
+                key="chain_search_button_mbf",
+            )
+        with button_col2:
+            run_chain_mert = st.button(
+                "🔍 連鎖検索を実行(MERT)",
+                type="secondary",
+                key="chain_search_button_mert",
+            )
+        with button_col3:
+            run_chain_ast = st.button(
+                "🔍 連鎖検索を実行(AST)",
+                type="secondary",
+                key="chain_search_button_ast",
+            )
 
-                dbs = [db_full, db_balance, db_minimal]
+        chain_mode = None
+        if run_chain_mbf:
+            chain_mode = "mbf"
+        elif run_chain_mert:
+            chain_mode = "mert"
+        elif run_chain_ast:
+            chain_mode = "ast"
 
+        if chain_mode:
+            label_map = {
+                "mbf": "Minimal/Balance/Full",
+                "mert": "MERT",
+                "ast": "AST",
+            }
+            with st.spinner(f"連鎖検索中... ({label_map[chain_mode]})"):
                 # BPMフィルタが有効な場合、選択曲のBPMを取得
                 min_bpm = None
                 max_bpm = None
@@ -850,23 +991,56 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
                             "⚠️ 選択した曲のBPM情報がないため、BPMフィルタは無効です"
                         )
 
-                # 既存の関数を使用
-                chain_results = chain_search_to_list(
-                    start_filename=selected_song,
-                    dbs=dbs,
-                    n_songs=chain_search_count,
-                    artist_filter=(
-                        source_dir_filter_selected
-                        if source_dir_filter_selected
-                        else None
-                    ),
-                    min_bpm=min_bpm,
-                    max_bpm=max_bpm,
-                )
+                if chain_mode == "mbf":
+                    # 全てのDBsを初期化（検索には全てのDBを使用）
+                    db_full = SongVectorDB(
+                        collection_name="songs_full", distance_fn="cosine"
+                    )
+                    db_balance = SongVectorDB(
+                        collection_name="songs_balanced", distance_fn="cosine"
+                    )
+                    db_minimal = SongVectorDB(
+                        collection_name="songs_minimal", distance_fn="cosine"
+                    )
+
+                    dbs = [db_full, db_balance, db_minimal]
+
+                    chain_results = chain_search_to_list(
+                        start_filename=selected_song,
+                        dbs=dbs,
+                        n_songs=chain_search_count,
+                        artist_filter=(
+                            source_dir_filter_selected
+                            if source_dir_filter_selected
+                            else None
+                        ),
+                        min_bpm=min_bpm,
+                        max_bpm=max_bpm,
+                    )
+                    st.session_state.chain_result_type = "distance"
+                else:
+                    segment_collection = (
+                        "songs_segments_mert"
+                        if chain_mode == "mert"
+                        else "songs_segments_ast"
+                    )
+                    segment_db = SongVectorDB(
+                        collection_name=segment_collection, distance_fn="cosine"
+                    )
+                    chain_results = chain_search_from_segments_to_list(
+                        segment_db=segment_db,
+                        start_filename=selected_song,
+                        n_songs=chain_search_count,
+                        source_dir_filters=source_dir_filter_selected,
+                        min_bpm=min_bpm,
+                        max_bpm=max_bpm,
+                    )
+                    st.session_state.chain_result_type = "segment"
 
                 # セッション状態に保存
                 st.session_state.chain_results = chain_results
                 st.session_state.chain_selected_song = selected_song
+                st.session_state.chain_search_label = label_map[chain_mode]
 
         # 連鎖検索結果があれば表示（セッション状態から取得）
         if (
@@ -874,6 +1048,7 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
             and st.session_state.chain_selected_song == selected_song
         ):
             chain_results = st.session_state.chain_results
+            chain_result_type = st.session_state.chain_result_type
 
             # 結果表示
             st.success(f"✅ {len(chain_results)}曲を検索しました")
@@ -881,23 +1056,28 @@ if search_button or recommend_button or "last_keyword" in st.session_state:
             # データフレームとして表示（距離とメタデータも含む）
             chain_df_data = []
             for idx, (song_id, distance, metadata) in enumerate(chain_results, 1):
-                chain_df_data.append(
-                    {
-                        "No.": idx,
-                        "ファイル名": song_id,
-                        "アーティスト": (
-                            metadata.get("artist_name", "") if metadata else ""
-                        ),
-                        "距離": f"{distance:.6f}" if distance > 0 else "-",
-                        "BPM": metadata.get("bpm", "") if metadata else "",
-                    }
-                )
+                row = {
+                    "No.": idx,
+                    "ファイル名": song_id,
+                    "アーティスト": (
+                        metadata.get("artist_name", "") if metadata else ""
+                    ),
+                    "BPM": metadata.get("bpm", "") if metadata else "",
+                }
+                if chain_result_type == "segment":
+                    row["スコア"] = f"{distance:.2f}" if distance > 0 else "-"
+                else:
+                    row["距離"] = f"{distance:.6f}" if distance > 0 else "-"
+                chain_df_data.append(row)
 
             chain_df = pd.DataFrame(chain_df_data)
 
             # 距離列に色付けを適用して表示
-            styled_chain_df = style_distance_column(chain_df)
-            st.dataframe(styled_chain_df, use_container_width=True, hide_index=True)
+            if chain_result_type == "segment":
+                st.dataframe(chain_df, use_container_width=True, hide_index=True)
+            else:
+                styled_chain_df = style_distance_column(chain_df)
+                st.dataframe(styled_chain_df, use_container_width=True, hide_index=True)
 
             # 起点曲名称（videoIdと拡張子を除去）
             start_song_name = re.sub(

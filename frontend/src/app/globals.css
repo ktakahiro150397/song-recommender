@@ -1,0 +1,49 @@
+@import "tailwindcss";
+
+:root {
+  --background: #020617;
+  --foreground: #e2e8f0;
+  --muted: #94a3b8;
+  --glass: rgba(15, 23, 42, 0.8);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: radial-gradient(circle at top, #0f172a, #020617);
+  color: var(--foreground);
+  font-family: var(--font-sans), system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
+  min-height: 100vh;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.dashboard-card {
+  border-radius: 1.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--glass);
+  padding: 1.5rem;
+  box-shadow: 0 25px 65px rgba(2, 6, 23, 0.4);
+}
+
+.card-label {
+  font-size: 0.75rem;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.card-value {
+  font-size: 2rem;
+  font-weight: 600;
+  margin-top: 0.5rem;
+}

@@ -20,11 +20,13 @@ dependencies = [
     "authlib>=1.6.7",
     "transformers>=5.1.0",
     "torch>=2.10.0",
+    "torchaudio>=2.10.0",
     "torchvision>=0.25.0",
 ]
 
 [tool.uv.sources]
 torch = { index = "torch-cuda" }
+torchaudio = { index = "torch-cuda" }
 torchvision = { index = "torch-cuda" }
 
 [[tool.uv.index]]

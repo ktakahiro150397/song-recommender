@@ -26,5 +26,6 @@ uv run .\scripts\test_segment_features.py --search-filename "パステルカラ�
 uv run .\scripts\test_segment_features.py --search-filename "パステルカラー パスカラカラー [VyzV-6UWq8U].wav" --exclude-same-song --search-collection songs_segments_mert --distance-max 0.1
 uv run .\scripts\test_segment_features.py --search-filename "平行線の美学 [y6RIPflxByI].wav" --exclude-same-song --search-collection songs_segments_balanced --distance-max 0.1
 
+uv run .\scripts\test_segment_features.py --search-filename "Love Addiction [f3fHCDNwTng].wav" --exclude-same-song --search-collection songs_segments_ast --distance-max 0.1
 
 uv run .\scripts\test_segment_features.py --search-filename "とある英雄たちの物語 [X3G6sqNjqgc].wav" --exclude-same-song --search-collection songs_segments_ast --distance-max 0.1 --search-topk 5

@@ -156,7 +156,7 @@ def add_embeddings_to_db(
 def process_audio_file(
     audio_path: Path,
     segment_seconds: float,
-    collection_name: str,
+    db: SongVectorDB,
     excluded_from_search: bool,
     source_dir: str | None,
     model_name: str,
@@ -171,7 +171,6 @@ def process_audio_file(
         return 0, 0
 
     print(f"\n[debug] Processing file: {audio_path}")
-    db = SongVectorDB(collection_name=collection_name, distance_fn="cosine")
 
     waveform = load_audio_mono(audio_path, target_sr)
     segments = split_segments(waveform, segment_seconds, target_sr)
@@ -198,9 +197,15 @@ def process_audio_file(
     segment_items: list[tuple[str, list[float], dict]] = []
     skipped = 0
 
+    segment_ids = [
+        build_segment_id(filename, index) for index in range(len(embeddings))
+    ]
+    existing_result = db.get_songs(segment_ids, include_embedding=False)
+    existing_ids = set(existing_result.get("ids", []))
+
     for index, embedding in enumerate(embeddings):
         segment_id = build_segment_id(filename, index)
-        if db.get_song(song_id=segment_id, include_embedding=False) is not None:
+        if segment_id in existing_ids:
             skipped += 1
             continue
 
@@ -333,12 +338,13 @@ def main() -> None:
 
     total_added = 0
     total_skipped = 0
+    db = SongVectorDB(collection_name=collection_name, distance_fn="cosine")
 
     for audio_path in audio_files:
         added, skipped = process_audio_file(
             audio_path=Path(audio_path),
             segment_seconds=segment_seconds,
-            collection_name=collection_name,
+            db=db,
             excluded_from_search=excluded_from_search,
             source_dir=source_dir,
             model_name=args.model,

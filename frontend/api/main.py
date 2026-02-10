@@ -284,14 +284,35 @@ def _load_collection_counts() -> DbCollectionCounts:
             ).group_by(ProcessedCollection.collection_name)
         ).all()
 
-    counts = {name: count for name, count in rows}
-    return DbCollectionCounts(
-        full=counts.get("full", 0),
-        balance=counts.get("balance", 0),
-        minimal=counts.get("minimal", 0),
-        seg_mert=counts.get("seg_mert", 0),
-        seg_ast=counts.get("seg_ast", 0),
-    )
+    resolved_counts = {
+        "full": 0,
+        "balance": 0,
+        "minimal": 0,
+        "seg_mert": 0,
+        "seg_ast": 0,
+    }
+    name_aliases = {
+        "full": "full",
+        "songs_full": "full",
+        "balance": "balance",
+        "balanced": "balance",
+        "songs_balance": "balance",
+        "songs_balanced": "balance",
+        "minimal": "minimal",
+        "songs_minimal": "minimal",
+        "seg_mert": "seg_mert",
+        "songs_segments_mert": "seg_mert",
+        "seg_ast": "seg_ast",
+        "songs_segments_ast": "seg_ast",
+    }
+
+    for name, count in rows:
+        alias = name_aliases.get(str(name).lower())
+        if not alias:
+            continue
+        resolved_counts[alias] = count
+
+    return DbCollectionCounts(**resolved_counts)
 
 
 @app.get("/api/stats/overview", response_model=ResponseEnvelope[StatsOverview])

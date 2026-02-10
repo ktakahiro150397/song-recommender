@@ -22,11 +22,11 @@ _Last updated: 2026-02-10_
 - [x] Replace FastAPI mocks with real DB-backed handlers.
 - [x] Provide production DB credentials in `api/.env` (MYSQL_* envs) and confirm connectivity.
 - [x] Run `uv sync` successfully and capture any required OS packages.
-- [ ] Add automated tests or smoke scripts that hit the new endpoints.
+- [x] Add automated tests or smoke scripts that hit the new endpoints.
 
 ### Frontend
 - [x] Document environment switch (`NEXT_PUBLIC_API_BASE_URL`).
-- [ ] Update the API client to remove mock fallbacks once API is stable.
+- [x] Update the API client to remove mock fallbacks once API is stable.
 - [ ] Review pages/components for any DTO drift after backend changes.
 
 ### Observability & Ops

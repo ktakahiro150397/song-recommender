@@ -6,12 +6,30 @@ from uuid import uuid4
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
 from pydantic.generics import GenericModel
+from sqlalchemy import func, select
+from sqlalchemy.exc import SQLAlchemyError
+
+from core import playlist_db, song_metadata_db
+from core.channel_db import ChannelDB
+from core.database import get_session
+from core.models import PlaylistHeader as PlaylistHeaderModel, ProcessedCollection
+from core.song_queue_db import SongQueueDB
+from core.user_db import get_display_names_by_subs
 
 app = FastAPI(
     title="Song Recommender API",
     version="0.1.0",
-    description="Mocked endpoints backing the Next.js dashboard",
+    description="Operational endpoints backing the Next.js dashboard",
 )
+
+song_queue_db_client = SongQueueDB()
+channel_db_client = ChannelDB()
+
+DEFAULT_SONG_LIMIT = 200
+MAX_SONG_LIMIT = 1000
+DEFAULT_PLAYLIST_LIMIT = 20
+MAX_PLAYLIST_LIMIT = 100
+STATS_TOP_LIMIT = 10
 
 
 class ResponseMeta(BaseModel):
@@ -79,7 +97,7 @@ class SongSummary(BaseModel):
     song_title: str
     artist_name: str
     source_dir: str
-    bpm: float
+    bpm: Optional[float] = None
     youtube_id: str
     file_extension: str
     file_size_mb: float
@@ -120,184 +138,227 @@ class PlaylistHistoryEntry(BaseModel):
     comments: list[PlaylistComment]
 
 
-mock_stats_overview = StatsOverview(
-    total_songs=4821,
-    total_channels=318,
-    queue_counts=QueueCounts(pending=6, processed=1540, failed=12, total=1558),
-    total_size_gb=812.4,
-)
-
-mock_stats_playlists = StatsPlaylists(
-    top_songs=[
-        SongCount(song_id="Luminous Path [abc123].wav", count=48),
-        SongCount(song_id="City Bloom [xyz987].wav", count=44),
-        SongCount(song_id="Parallel Sun [klm555].wav", count=39),
-    ],
-    top_artists=[
-        ArtistCount(artist_name="Rina Amethyst", count=62),
-        ArtistCount(artist_name="Toshiro Park", count=51),
-        ArtistCount(artist_name="Hikari Bloom", count=47),
-    ],
-    top_start_songs=[
-        SongCount(song_id="Luminous Path [abc123].wav", count=24),
-        SongCount(song_id="Silent Tunnels [uvw222].wav", count=19),
-        SongCount(song_id="Signal Drift [pqr444].wav", count=15),
-    ],
-)
-
-mock_db_counts = DbCollectionCounts(
-    full=2480,
-    balance=1724,
-    minimal=617,
-    seg_mert=14890,
-    seg_ast=14932,
-)
-
-mock_songs = [
-    SongSummary(
-        song_id="Luminous Path [abc123].wav",
-        song_title="Luminous Path",
-        artist_name="Rina Amethyst",
-        source_dir="data/rina",
-        bpm=122,
-        youtube_id="abc123",
-        file_extension=".wav",
-        file_size_mb=14.2,
-        registered_at="2026-02-10T12:00:00Z",
-        excluded_from_search=False,
-    ),
-    SongSummary(
-        song_id="City Bloom [xyz987].wav",
-        song_title="City Bloom",
-        artist_name="Toshiro Park",
-        source_dir="data/toshiro",
-        bpm=128,
-        youtube_id="xyz987",
-        file_extension=".wav",
-        file_size_mb=16.7,
-        registered_at="2026-02-10T12:00:00Z",
-        excluded_from_search=False,
-    ),
-    SongSummary(
-        song_id="Parallel Sun [klm555].wav",
-        song_title="Parallel Sun",
-        artist_name="Hikari Bloom",
-        source_dir="data/hikari",
-        bpm=118,
-        youtube_id="klm555",
-        file_extension=".wav",
-        file_size_mb=13.1,
-        registered_at="2026-02-10T12:00:00Z",
-        excluded_from_search=False,
-    ),
-    SongSummary(
-        song_id="Silent Tunnels [uvw222].wav",
-        song_title="Silent Tunnels",
-        artist_name="Echo Fields",
-        source_dir="data/echo",
-        bpm=110,
-        youtube_id="uvw222",
-        file_extension=".wav",
-        file_size_mb=11.8,
-        registered_at="2026-02-10T12:00:00Z",
-        excluded_from_search=False,
-    ),
-]
-
-mock_playlist_history = [
-    PlaylistHistoryEntry(
-        header=PlaylistHeader(
-            playlist_id="PL_first",
-            playlist_name="Night Glide Set",
-            playlist_url="https://music.youtube.com/playlist?list=PL_first",
-            creator_sub="user-sub-1",
-            creator_display_name="Rina",
-            created_at="2026-02-10T12:00:00Z",
-            header_comment="City lights inspired chain",
-        ),
-        items=[
-            PlaylistItem(
-                seq=1,
-                song_id="Luminous Path [abc123].wav",
-                cosine_distance=0.012,
-                source_dir="data/rina",
-            ),
-            PlaylistItem(
-                seq=2,
-                song_id="City Bloom [xyz987].wav",
-                cosine_distance=0.017,
-                source_dir="data/toshiro",
-            ),
-        ],
-        comments=[
-            PlaylistComment(
-                id=1,
-                playlist_id="PL_first",
-                user_sub="user-sub-2",
-                display_name="Nao",
-                comment="Great transitions!",
-                is_deleted=False,
-                created_at="2026-02-10T12:00:00Z",
-            )
-        ],
-    ),
-    PlaylistHistoryEntry(
-        header=PlaylistHeader(
-            playlist_id="PL_second",
-            playlist_name="Sunrise Cascade",
-            playlist_url="https://music.youtube.com/playlist?list=PL_second",
-            creator_sub="user-sub-3",
-            creator_display_name="Tak",
-            created_at="2026-02-10T12:00:00Z",
-            header_comment="Testing chain search results",
-        ),
-        items=[
-            PlaylistItem(
-                seq=1,
-                song_id="Parallel Sun [klm555].wav",
-                cosine_distance=0.011,
-                source_dir="data/hikari",
-            ),
-            PlaylistItem(
-                seq=2,
-                song_id="Silent Tunnels [uvw222].wav",
-                cosine_distance=0.016,
-                source_dir="data/echo",
-            ),
-        ],
-        comments=[],
-    ),
-]
-
-
-def build_envelope(data, total: Optional[int] = None):
+def build_envelope(
+    data,
+    total: Optional[int] = None,
+    limit: Optional[int] = None,
+    offset: int = 0,
+):
     return ResponseEnvelope(
         data=data,
         error=None,
         meta=ResponseMeta(
             total=total,
-            limit=total,
-            offset=0,
+            limit=limit if limit is not None else total,
+            offset=offset,
         ),
+    )
+
+
+def _convert_song_summary(song_id: str, metadata: dict) -> SongSummary:
+    return SongSummary(
+        song_id=song_id,
+        song_title=metadata.get("song_title", ""),
+        artist_name=metadata.get("artist_name", ""),
+        source_dir=metadata.get("source_dir", ""),
+        bpm=metadata.get("bpm"),
+        youtube_id=metadata.get("youtube_id", ""),
+        file_extension=metadata.get("file_extension", ""),
+        file_size_mb=float(metadata.get("file_size_mb", 0.0)),
+        registered_at=metadata.get("registered_at", ""),
+        excluded_from_search=bool(metadata.get("excluded_from_search", False)),
+    )
+
+
+def _resolve_source_dir(song_id: str, songs_meta: dict[str, dict]) -> str:
+    metadata = songs_meta.get(song_id)
+    return metadata.get("source_dir", "") if metadata else ""
+
+
+def _build_playlist_entries(headers: list[dict]) -> list[PlaylistHistoryEntry]:
+    if not headers:
+        return []
+
+    playlist_ids = [header["playlist_id"] for header in headers]
+    items_map = {pid: playlist_db.get_playlist_items(pid) for pid in playlist_ids}
+    comments_map = {
+        pid: playlist_db.list_playlist_comments(pid) for pid in playlist_ids
+    }
+
+    song_ids = sorted(
+        {
+            item["song_id"]
+            for items in items_map.values()
+            for item in items
+            if item.get("song_id")
+        }
+    )
+    songs_meta = song_metadata_db.get_songs_as_dict(song_ids) if song_ids else {}
+
+    user_subs: set[str] = {header["creator_sub"] for header in headers}
+    for comments in comments_map.values():
+        for comment in comments:
+            user_subs.add(comment["user_sub"])
+    display_names = get_display_names_by_subs(list(user_subs)) if user_subs else {}
+
+    entries: list[PlaylistHistoryEntry] = []
+    for header in headers:
+        playlist_id = header["playlist_id"]
+        header_model = PlaylistHeader(
+            playlist_id=playlist_id,
+            playlist_name=header["playlist_name"],
+            playlist_url=header["playlist_url"],
+            creator_sub=header["creator_sub"],
+            creator_display_name=display_names.get(
+                header["creator_sub"], header["creator_sub"]
+            ),
+            created_at=header["created_at"],
+            header_comment=header.get("header_comment") or None,
+        )
+
+        items = [
+            PlaylistItem(
+                seq=item["seq"],
+                song_id=item["song_id"],
+                cosine_distance=item["cosine_distance"],
+                source_dir=_resolve_source_dir(item["song_id"], songs_meta),
+            )
+            for item in items_map.get(playlist_id, [])
+        ]
+
+        comments = [
+            PlaylistComment(
+                id=comment["id"],
+                playlist_id=playlist_id,
+                user_sub=comment["user_sub"],
+                display_name=display_names.get(
+                    comment["user_sub"], comment["user_sub"]
+                ),
+                comment=comment["comment"],
+                is_deleted=comment["is_deleted"],
+                created_at=comment["created_at"],
+            )
+            for comment in comments_map.get(playlist_id, [])
+        ]
+
+        entries.append(
+            PlaylistHistoryEntry(
+                header=header_model,
+                items=items,
+                comments=comments,
+            )
+        )
+
+    return entries
+
+
+def _get_playlist_header_by_id(playlist_id: str) -> Optional[dict]:
+    with get_session() as session:
+        header = session.execute(
+            select(PlaylistHeaderModel)
+            .where(PlaylistHeaderModel.playlist_id == playlist_id)
+            .where(PlaylistHeaderModel.deleted_at.is_(None))
+        ).scalar_one_or_none()
+
+        if not header:
+            return None
+
+        return {
+            "playlist_id": header.playlist_id,
+            "playlist_name": header.playlist_name,
+            "playlist_url": header.playlist_url,
+            "creator_sub": header.creator_sub,
+            "header_comment": header.header_comment or "",
+            "created_at": header.created_at.isoformat(),
+        }
+
+
+def _load_collection_counts() -> DbCollectionCounts:
+    with get_session() as session:
+        rows = session.execute(
+            select(
+                ProcessedCollection.collection_name,
+                func.count(ProcessedCollection.id),
+            ).group_by(ProcessedCollection.collection_name)
+        ).all()
+
+    counts = {name: count for name, count in rows}
+    return DbCollectionCounts(
+        full=counts.get("full", 0),
+        balance=counts.get("balance", 0),
+        minimal=counts.get("minimal", 0),
+        seg_mert=counts.get("seg_mert", 0),
+        seg_ast=counts.get("seg_ast", 0),
     )
 
 
 @app.get("/api/stats/overview", response_model=ResponseEnvelope[StatsOverview])
 async def get_stats_overview():
-    return build_envelope(mock_stats_overview)
+    try:
+        total_songs = song_metadata_db.count_songs()
+        total_channels = channel_db_client.get_channel_count()
+        queue_counts_raw = song_queue_db_client.get_counts()
+        queue_counts = QueueCounts(
+            pending=queue_counts_raw.get("pending", 0),
+            processed=queue_counts_raw.get("processed", 0),
+            failed=queue_counts_raw.get("failed", 0),
+            total=queue_counts_raw.get(
+                "total",
+                queue_counts_raw.get("pending", 0)
+                + queue_counts_raw.get("processed", 0)
+                + queue_counts_raw.get("failed", 0),
+            ),
+        )
+        total_size_gb = song_metadata_db.get_total_processed_data_size_gb()
+        stats = StatsOverview(
+            total_songs=total_songs,
+            total_channels=total_channels,
+            queue_counts=queue_counts,
+            total_size_gb=round(total_size_gb, 3),
+        )
+        return build_envelope(stats)
+    except SQLAlchemyError as exc:
+        raise HTTPException(
+            status_code=500, detail="Database error while loading overview stats"
+        ) from exc
+    except Exception as exc:  # pragma: no cover - unexpected runtime failures
+        raise HTTPException(
+            status_code=500, detail="Failed to load overview stats"
+        ) from exc
 
 
 @app.get("/api/stats/playlists", response_model=ResponseEnvelope[StatsPlaylists])
 async def get_stats_playlists():
-    return build_envelope(mock_stats_playlists)
+    try:
+        top_songs_raw = playlist_db.get_top_selected_songs(limit=STATS_TOP_LIMIT)
+        top_artists_raw = playlist_db.get_top_selected_artists(limit=STATS_TOP_LIMIT)
+        top_start_songs_raw = playlist_db.get_top_selected_start_songs(
+            limit=STATS_TOP_LIMIT
+        )
+        stats = StatsPlaylists(
+            top_songs=[SongCount(**entry) for entry in top_songs_raw],
+            top_artists=[ArtistCount(**entry) for entry in top_artists_raw],
+            top_start_songs=[SongCount(**entry) for entry in top_start_songs_raw],
+        )
+        return build_envelope(stats)
+    except SQLAlchemyError as exc:
+        raise HTTPException(
+            status_code=500, detail="Database error while loading playlist stats"
+        ) from exc
 
 
 @app.get(
     "/api/stats/db-collections", response_model=ResponseEnvelope[DbCollectionCounts]
 )
 async def get_db_collection_counts():
-    total_collections = sum(mock_db_counts.model_dump().values())
-    return build_envelope(mock_db_counts, total=total_collections)
+    try:
+        counts = _load_collection_counts()
+        total_collections = sum(counts.model_dump().values())
+        return build_envelope(counts, total=total_collections)
+    except SQLAlchemyError as exc:
+        raise HTTPException(
+            status_code=500, detail="Database error while loading collection stats"
+        ) from exc
 
 
 @app.get(
@@ -308,29 +369,57 @@ async def list_songs(
     keyword: Optional[str] = Query(
         default=None,
         description="Filter by song title, artist name, or song_id",
-    )
+    ),
+    limit: int = Query(
+        default=DEFAULT_SONG_LIMIT,
+        ge=1,
+        le=MAX_SONG_LIMIT,
+        description="Maximum number of songs to return",
+    ),
 ):
-    if keyword:
-        lowered = keyword.strip().lower()
-        filtered = [
-            song
-            for song in mock_songs
-            if lowered in song.song_title.lower()
-            or lowered in song.artist_name.lower()
-            or lowered in song.song_id.lower()
-        ]
-    else:
-        filtered = mock_songs
+    try:
+        if keyword and keyword.strip():
+            records = song_metadata_db.search_by_keyword(keyword.strip(), limit=limit)
+        else:
+            records = song_metadata_db.list_all(limit=limit)
 
-    return build_envelope(filtered, total=len(filtered))
+        songs = [
+            _convert_song_summary(song_id, metadata) for song_id, metadata in records
+        ]
+        return build_envelope(songs, total=len(songs), limit=limit)
+    except SQLAlchemyError as exc:
+        raise HTTPException(
+            status_code=500, detail="Database error while loading songs"
+        ) from exc
 
 
 @app.get(
     "/api/playlists",
     response_model=ResponseEnvelope[list[PlaylistHistoryEntry]],
 )
-async def list_playlists():
-    return build_envelope(mock_playlist_history, total=len(mock_playlist_history))
+async def list_playlists(
+    keyword: Optional[str] = Query(
+        default=None,
+        description="Filter by playlist id or name",
+    ),
+    limit: int = Query(
+        default=DEFAULT_PLAYLIST_LIMIT,
+        ge=1,
+        le=MAX_PLAYLIST_LIMIT,
+        description="Maximum number of playlist histories to return",
+    ),
+):
+    try:
+        headers = playlist_db.list_playlist_headers(
+            keyword=keyword.strip() if keyword else None,
+            limit=limit,
+        )
+        entries = _build_playlist_entries(headers)
+        return build_envelope(entries, total=len(entries), limit=limit)
+    except SQLAlchemyError as exc:
+        raise HTTPException(
+            status_code=500, detail="Database error while loading playlists"
+        ) from exc
 
 
 @app.get(
@@ -338,10 +427,18 @@ async def list_playlists():
     response_model=ResponseEnvelope[PlaylistHistoryEntry],
 )
 async def get_playlist_detail(playlist_id: str):
-    for playlist in mock_playlist_history:
-        if playlist.header.playlist_id == playlist_id:
-            return build_envelope(playlist)
-    raise HTTPException(status_code=404, detail="Playlist not found")
+    try:
+        header = _get_playlist_header_by_id(playlist_id)
+        if not header:
+            raise HTTPException(status_code=404, detail="Playlist not found")
+        entries = _build_playlist_entries([header])
+        if not entries:
+            raise HTTPException(status_code=404, detail="Playlist not found")
+        return build_envelope(entries[0])
+    except SQLAlchemyError as exc:
+        raise HTTPException(
+            status_code=500, detail="Database error while loading playlist detail"
+        ) from exc
 
 
 @app.get("/api/health")

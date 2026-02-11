@@ -69,6 +69,7 @@ name = "api"
 version = "0.1.0"
 source = { virtual = "frontend/api" }
 dependencies = [
+    { name = "chromadb" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "pymysql" },
@@ -80,6 +81,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "chromadb", specifier = ">=0.5.4" },
     { name = "fastapi", specifier = ">=0.128.6" },
     { name = "httpx", specifier = ">=0.25.0" },
     { name = "pymysql", specifier = ">=1.1.1" },

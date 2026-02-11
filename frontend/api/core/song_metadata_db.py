@@ -159,7 +159,7 @@ def search_by_keyword(
     exclude_from_search: bool = True,
 ) -> list[tuple[str, dict]]:
     """
-    キーワードでメタデータを部分一致検索する（SQL LIKE検索）
+    楽曲名とアーティスト名を部分一致検索する（SQL LIKE検索）
 
     Args:
         keyword: 検索キーワード
@@ -174,11 +174,8 @@ def search_by_keyword(
         keyword_pattern = f"%{keyword}%"
         stmt = select(Song).where(
             or_(
-                Song.song_id.like(keyword_pattern),
-                Song.filename.like(keyword_pattern),
                 Song.song_title.like(keyword_pattern),
                 Song.artist_name.like(keyword_pattern),
-                Song.source_dir.like(keyword_pattern),
             )
         )
 
@@ -271,7 +268,7 @@ def count_songs(exclude_from_search: bool = False) -> int:
 
 def count_by_keyword(keyword: str, exclude_from_search: bool = True) -> int:
     """
-    キーワードで一致する楽曲数をカウントする
+    楽曲名とアーティスト名で一致する楽曲数をカウントする
 
     Args:
         keyword: 検索キーワード
@@ -289,11 +286,8 @@ def count_by_keyword(keyword: str, exclude_from_search: bool = True) -> int:
             .select_from(Song)
             .where(
                 or_(
-                    Song.song_id.like(keyword_pattern),
-                    Song.filename.like(keyword_pattern),
                     Song.song_title.like(keyword_pattern),
                     Song.artist_name.like(keyword_pattern),
-                    Song.source_dir.like(keyword_pattern),
                 )
             )
         )

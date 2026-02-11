@@ -4,14 +4,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { getSimilarSongs, searchSongs } from "@/lib/api-client";
 import { SimilarSongItem, SongSummary } from "@/types/api";
 
-const numberFormatter = new Intl.NumberFormat("en-US", {
-  minimumFractionDigits: 0,
-  maximumFractionDigits: 2,
-});
-
 const distanceFormatter = new Intl.NumberFormat("en-US", {
   minimumFractionDigits: 3,
   maximumFractionDigits: 3,
+});
+
+const bpmFormatter = new Intl.NumberFormat("en-US", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
 });
 
 type SimilarDb = "full" | "balance" | "minimal";
@@ -195,7 +195,7 @@ export function SongSearchClient() {
           キーワード
           <input
             className="rounded-xl border border-white/10 bg-slate-900 px-4 py-3 text-base text-white focus:border-cyan-400 focus:outline-none"
-            placeholder="曲名・アーティスト・動画IDなど"
+            placeholder="曲名・アーティストで検索"
             value={keyword}
             onChange={(event) => setKeyword(event.target.value)}
           />
@@ -206,54 +206,61 @@ export function SongSearchClient() {
         ) : null}
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        {songs.map((song) => (
-          <article
-            key={song.song_id}
-            className="rounded-2xl border border-white/10 bg-slate-900/60 p-5 shadow-lg shadow-black/20"
-          >
-            <header className="flex flex-col gap-1">
-              <p className="text-xs uppercase tracking-wide text-cyan-300">
-                BPM {song.bpm}
-              </p>
-              <h3 className="text-lg font-semibold text-white">
-                {song.song_title}
-              </h3>
-              <p className="text-sm text-slate-300">{song.artist_name}</p>
-            </header>
-            <dl className="mt-4 grid grid-cols-2 gap-2 text-sm text-slate-300">
-              <div>
-                <dt className="text-xs text-slate-400">ソースディレクトリ</dt>
-                <dd>{song.source_dir}</dd>
-              </div>
-              <div>
-                <dt className="text-xs text-slate-400">ファイルサイズ</dt>
-                <dd>{numberFormatter.format(song.file_size_mb)} MB</dd>
-              </div>
-              <div>
-                <dt className="text-xs text-slate-400">拡張子</dt>
-                <dd>{song.file_extension}</dd>
-              </div>
-              <div>
-                <dt className="text-xs text-slate-400">YouTube ID</dt>
-                <dd className="font-mono text-xs">{song.youtube_id}</dd>
-              </div>
-            </dl>
-            <p className="mt-4 text-xs text-slate-500">
-              登録日: {new Date(song.registered_at).toLocaleDateString()}
-            </p>
-            <button
-              className={`mt-4 w-full rounded-xl border px-4 py-2 text-sm font-medium transition ${
-                selectedSong?.song_id === song.song_id
-                  ? "border-cyan-400 bg-cyan-400/10 text-cyan-100"
-                  : "border-white/15 text-slate-200 hover:border-cyan-400 hover:text-cyan-200"
-              }`}
-              onClick={() => setSelectedSong({ ...song })}
-            >
-              類似曲を検索
-            </button>
-          </article>
-        ))}
+      <div className="overflow-hidden rounded-2xl border border-white/10">
+        <table className="w-full border-collapse text-sm">
+          <thead className="bg-slate-900/70 text-xs uppercase tracking-wide text-slate-400">
+            <tr>
+              <th className="px-4 py-3 text-left font-semibold">楽曲</th>
+              <th className="px-4 py-3 text-left font-semibold">アーティスト</th>
+              <th className="w-20 px-4 py-3 text-left font-semibold">BPM</th>
+              <th className="w-32 px-4 py-3 text-left font-semibold">登録日</th>
+              <th className="w-32 px-4 py-3 text-left font-semibold">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {songs.map((song) => (
+              <tr key={song.song_id} className="odd:bg-slate-900/40">
+                <td className="px-4 py-3 text-slate-100">
+                  {song.youtube_id ? (
+                    <a
+                      className="font-semibold text-cyan-200 underline decoration-cyan-300 underline-offset-4 hover:text-cyan-100"
+                      href={`https://music.youtube.com/watch?v=${encodeURIComponent(
+                        song.youtube_id
+                      )}`}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      {song.song_title}
+                    </a>
+                  ) : (
+                    song.song_title
+                  )}
+                </td>
+                <td className="px-4 py-3 text-slate-300">{song.artist_name}</td>
+                <td className="px-4 py-3 font-mono text-xs text-slate-300">
+                  {typeof song.bpm === "number"
+                    ? bpmFormatter.format(song.bpm)
+                    : "-"}
+                </td>
+                <td className="px-4 py-3 text-xs text-slate-400">
+                  {new Date(song.registered_at).toLocaleDateString()}
+                </td>
+                <td className="px-4 py-3">
+                  <button
+                    className={`w-full rounded-lg border px-3 py-2 text-xs font-medium transition ${
+                      selectedSong?.song_id === song.song_id
+                        ? "border-cyan-400 bg-cyan-400/10 text-cyan-100"
+                        : "border-white/15 text-slate-200 hover:border-cyan-400 hover:text-cyan-200"
+                    }`}
+                    onClick={() => setSelectedSong({ ...song })}
+                  >
+                    類似曲を検索
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
 
       {isLoadingSongs ? (
@@ -329,7 +336,10 @@ export function SongSearchClient() {
                 {selectedSong.artist_name}
               </p>
               <p className="mt-2 text-xs text-slate-400">
-                {selectedSong.song_id} / BPM {selectedSong.bpm ?? "-"}
+                {selectedSong.song_id} / BPM{" "}
+                {typeof selectedSong.bpm === "number"
+                  ? bpmFormatter.format(selectedSong.bpm)
+                  : "-"}
               </p>
             </div>
             <div>

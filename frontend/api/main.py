@@ -16,6 +16,11 @@ from core.database import get_session
 from core.models import PlaylistHeader as PlaylistHeaderModel, ProcessedCollection
 from core.db_manager import SongVectorDB
 from core.song_queue_db import SongQueueDB
+from core.segment_search_cache import (
+    build_params_hash,
+    get_segment_search_cache,
+    save_segment_search_cache,
+)
 from core.user_db import get_display_names_by_subs
 from observability import configure_logging, get_request_id, setup_observability
 
@@ -45,13 +50,18 @@ DEFAULT_PLAYLIST_LIMIT = 20
 MAX_PLAYLIST_LIMIT = 100
 STATS_TOP_LIMIT = 10
 SIMILARITY_COLLECTIONS = {
-    "full": "songs_segments_full",
-    "balance": "songs_segments_balance",
-    "minimal": "songs_segments_minimal",
+    "full": "songs_full",
+    "balance": "songs_balanced",
+    "minimal": "songs_minimal",
+}
+SEGMENT_COLLECTIONS = {
+    "mert": "songs_segments_mert",
+    "ast": "songs_segments_ast",
 }
 
 
 vector_db_clients: dict[str, SongVectorDB] = {}
+segment_db_clients: dict[str, SongVectorDB] = {}
 
 
 class ResponseMeta(BaseModel):
@@ -130,6 +140,14 @@ class SongSummary(BaseModel):
 class SimilarSongItem(BaseModel):
     song: SongSummary
     distance: float
+
+
+class SegmentSimilarItem(BaseModel):
+    song: SongSummary
+    score: float
+    hit_count: int
+    coverage: float
+    density: float
 
 
 class PlaylistHeader(BaseModel):
@@ -216,6 +234,23 @@ def _get_vector_client(key: str) -> SongVectorDB:
                 status_code=500, detail="Failed to initialize vector store"
             ) from exc
         vector_db_clients[collection] = client
+    return client
+
+
+def _get_segment_client(key: str) -> SongVectorDB:
+    collection = SEGMENT_COLLECTIONS.get(key)
+    if not collection:
+        raise HTTPException(status_code=400, detail="Unsupported segment db")
+
+    client = segment_db_clients.get(collection)
+    if client is None:
+        try:
+            client = SongVectorDB(collection_name=collection)
+        except Exception as exc:  # pragma: no cover - remote client init
+            raise HTTPException(
+                status_code=500, detail="Failed to initialize segment vector store"
+            ) from exc
+        segment_db_clients[collection] = client
     return client
 
 
@@ -611,6 +646,254 @@ async def get_similar_songs(
             break
 
     return build_envelope(similar_items, total=len(similar_items), limit=n_results)
+
+
+@app.get(
+    "/api/songs/{song_id}/similar-segments",
+    response_model=ResponseEnvelope[list[SegmentSimilarItem]],
+)
+async def get_similar_segments(
+    song_id: str,
+    request: Request,
+    collection: str = Query(
+        default="mert",
+        description="Segment vector collection",
+        pattern="^(mert|ast)$",
+    ),
+    n_results: int = Query(
+        default=10,
+        ge=1,
+        le=50,
+        description="Number of similar songs to return",
+    ),
+    search_topk: int = Query(
+        default=8,
+        ge=1,
+        le=50,
+        description="Candidates per segment",
+    ),
+    max_seconds: float = Query(
+        default=90.0,
+        ge=1.0,
+        le=600.0,
+        description="Maximum seconds of the song to include",
+    ),
+    skip_seconds: float = Query(
+        default=0.0,
+        ge=0.0,
+        le=300.0,
+        description="Skip seconds from the start",
+    ),
+    skip_end_seconds: float = Query(
+        default=0.0,
+        ge=0.0,
+        le=300.0,
+        description="Skip seconds from the end",
+    ),
+    distance_max: float = Query(
+        default=0.7,
+        ge=0.0,
+        le=2.0,
+        description="Maximum cosine distance to accept",
+    ),
+):
+    client = _get_segment_client(collection)
+    collection_name = getattr(client.collection, "name", None)
+    request_context = {
+        "song_id": song_id,
+        "collection": collection,
+        "db": collection_name,
+        "path": request.url.path,
+    }
+
+    params_hash = build_params_hash(
+        {
+            "collection": collection,
+            "n_results": n_results,
+            "search_topk": search_topk,
+            "max_seconds": max_seconds,
+            "skip_seconds": skip_seconds,
+            "skip_end_seconds": skip_end_seconds,
+            "distance_max": distance_max,
+        }
+    )
+
+    cached = None
+    if collection_name:
+        cached = get_segment_search_cache(collection_name, song_id, params_hash)
+
+    if cached is None:
+        try:
+            raw_segments = client.collection.get(
+                where={"source_song_id": song_id},
+                include=["embeddings", "metadatas"],
+            )
+        except Exception as exc:  # pragma: no cover - vector DB runtime errors
+            _log_error(
+                "segment_song_lookup_failed",
+                error=str(exc),
+                **request_context,
+            )
+            raise HTTPException(
+                status_code=502,
+                detail=f"Failed to load song segments: {exc}",
+            ) from exc
+
+        segment_embeddings = raw_segments.get("embeddings")
+        segment_metadatas = raw_segments.get("metadatas")
+        if segment_embeddings is None:
+            segment_embeddings = []
+        if segment_metadatas is None:
+            segment_metadatas = []
+
+        if len(segment_embeddings) == 0:
+            _log_warning("segment_song_not_found", **request_context)
+            raise HTTPException(
+                status_code=404,
+                detail="Song segments not found in the selected collection",
+            )
+
+        max_end = None
+        for meta in segment_metadatas:
+            if not isinstance(meta, dict):
+                continue
+            end_sec = meta.get("segment_end_sec")
+            if isinstance(end_sec, (int, float)):
+                max_end = end_sec if max_end is None else max(max_end, end_sec)
+
+        effective_end = max_seconds
+        if skip_end_seconds > 0 and max_end is not None:
+            end_limit = max_seconds if max_seconds > 0 else max_end
+            effective_end = max(end_limit - skip_end_seconds, 0.0)
+
+        if effective_end <= skip_seconds:
+            raise HTTPException(status_code=400, detail="Invalid segment time range")
+
+        filtered_segments: list[tuple[list[float], int]] = []
+        for emb, meta in zip(segment_embeddings, segment_metadatas):
+            if emb is None or not isinstance(meta, dict):
+                continue
+            start_sec = meta.get("segment_start_sec", 0.0)
+            end_sec = meta.get("segment_end_sec", start_sec)
+            if isinstance(start_sec, (int, float)) and start_sec < skip_seconds:
+                continue
+            if isinstance(end_sec, (int, float)) and end_sec > effective_end:
+                continue
+            seg_index = meta.get("segment_index")
+            seg_index = int(seg_index) if isinstance(seg_index, (int, float)) else 0
+            filtered_segments.append((list(emb), seg_index))
+
+        if not filtered_segments:
+            raise HTTPException(
+                status_code=404,
+                detail="Song segments not found in the selected range",
+            )
+
+        totals = {
+            "total_segments": len(filtered_segments),
+            "hits": {},
+        }
+
+        for emb, seg_index in filtered_segments:
+            try:
+                search_results = client.search_similar(
+                    emb,
+                    n_results=search_topk,
+                    where={
+                        "$and": [
+                            {"excluded_from_search": {"$ne": True}},
+                            {"source_song_id": {"$ne": song_id}},
+                        ]
+                    },
+                )
+            except Exception as exc:  # pragma: no cover - vector DB runtime errors
+                _log_error(
+                    "segment_search_failed",
+                    error=str(exc),
+                    **request_context,
+                )
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Failed to search segment neighbors: {exc}",
+                ) from exc
+
+            ids = (search_results.get("ids") or [[]])[0]
+            distances = (search_results.get("distances") or [[]])[0]
+            metadatas = (search_results.get("metadatas") or [[]])[0]
+
+            for _, dist, meta in zip(ids, distances, metadatas):
+                if distance_max is not None and isinstance(dist, (int, float)):
+                    if dist > distance_max:
+                        continue
+                if not isinstance(meta, dict):
+                    continue
+                source_song_id = meta.get("source_song_id")
+                if not source_song_id or source_song_id == song_id:
+                    continue
+
+                stats = totals["hits"].setdefault(
+                    source_song_id,
+                    {
+                        "hit_count": 0,
+                        "segment_hits": set(),
+                        "similarity_sum": 0.0,
+                        "similarity_count": 0,
+                    },
+                )
+                stats["hit_count"] += 1
+                stats["segment_hits"].add(seg_index)
+                if isinstance(dist, (int, float)):
+                    similarity = 1.0 - dist / 2.0
+                    stats["similarity_sum"] += similarity
+                    stats["similarity_count"] += 1
+
+        total_segments = totals["total_segments"]
+        results: list[tuple[str, float, int, float, float]] = []
+        for candidate_id, stats in totals["hits"].items():
+            if stats["similarity_count"] == 0:
+                continue
+            score = stats["similarity_sum"] / stats["similarity_count"]
+            coverage = len(stats["segment_hits"]) / total_segments
+            density = stats["hit_count"] / total_segments
+            results.append(
+                (
+                    candidate_id,
+                    score * 100.0,
+                    stats["hit_count"],
+                    coverage,
+                    density,
+                )
+            )
+
+        results.sort(key=lambda item: (item[1], item[2]), reverse=True)
+        cached = results[:n_results]
+
+        if collection_name and cached:
+            save_segment_search_cache(
+                collection_name=collection_name,
+                song_id=song_id,
+                params_hash=params_hash,
+                results=cached,
+            )
+
+    song_ids = [song_id for song_id, _, _, _, _ in cached]
+    metadata_map = song_metadata_db.get_songs_as_dict(song_ids) if song_ids else {}
+    items: list[SegmentSimilarItem] = []
+    for candidate_id, score, hit_count, coverage, density in cached:
+        metadata = metadata_map.get(candidate_id)
+        if not metadata:
+            continue
+        items.append(
+            SegmentSimilarItem(
+                song=_convert_song_summary(candidate_id, metadata),
+                score=float(score),
+                hit_count=int(hit_count),
+                coverage=float(coverage),
+                density=float(density),
+            )
+        )
+
+    return build_envelope(items, total=len(items), limit=n_results)
 
 
 @app.get(

@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getSimilarSongs, searchSongs } from "@/lib/api-client";
-import { SimilarSongItem, SongSummary } from "@/types/api";
+import { getSimilarSegments, getSimilarSongs, searchSongs } from "@/lib/api-client";
+import { SegmentSimilarItem, SimilarSongItem, SongSummary } from "@/types/api";
 
 const distanceFormatter = new Intl.NumberFormat("en-US", {
   minimumFractionDigits: 3,
@@ -14,7 +14,18 @@ const bpmFormatter = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 2,
 });
 
+const scoreFormatter = new Intl.NumberFormat("en-US", {
+  minimumFractionDigits: 1,
+  maximumFractionDigits: 1,
+});
+
+const ratioFormatter = new Intl.NumberFormat("en-US", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
 type SimilarDb = "full" | "balance" | "minimal";
+type SegmentCollection = "mert" | "ast";
 
 const dbOptions: { value: SimilarDb; label: string }[] = [
   { value: "full", label: "Full" },
@@ -23,6 +34,10 @@ const dbOptions: { value: SimilarDb; label: string }[] = [
 ];
 
 const limitOptions = [5, 10, 15, 20];
+const segmentCollections: { value: SegmentCollection; label: string }[] = [
+  { value: "mert", label: "MERT" },
+  { value: "ast", label: "AST" },
+];
 const PAGE_SIZE = 30;
 const SEARCH_DEBOUNCE_MS = 300;
 
@@ -41,6 +56,12 @@ export function SongSearchClient() {
   const [similarSongs, setSimilarSongs] = useState<SimilarSongItem[]>([]);
   const [isLoadingSimilar, setIsLoadingSimilar] = useState(false);
   const [similarError, setSimilarError] = useState<string | null>(null);
+  const [segmentCollection, setSegmentCollection] =
+    useState<SegmentCollection>("mert");
+  const [segmentLimit, setSegmentLimit] = useState(10);
+  const [segmentResults, setSegmentResults] = useState<SegmentSimilarItem[]>([]);
+  const [isLoadingSegments, setIsLoadingSegments] = useState(false);
+  const [segmentError, setSegmentError] = useState<string | null>(null);
   const loadIdRef = useRef(0);
   const offsetRef = useRef(0);
   const totalRef = useRef<number | null>(null);
@@ -182,6 +203,46 @@ export function SongSearchClient() {
       canceled = true;
     };
   }, [selectedSong, similarDb, similarLimit]);
+
+  useEffect(() => {
+    if (!selectedSong) return;
+    let canceled = false;
+    setIsLoadingSegments(true);
+    setSegmentResults([]);
+    setSegmentError(null);
+
+    getSimilarSegments(selectedSong.song_id, {
+      collection: segmentCollection,
+      nResults: segmentLimit,
+    })
+      .then((response) => {
+        if (canceled) return;
+        if (response.error) {
+          setSegmentError(response.error.message);
+          setSegmentResults([]);
+          return;
+        }
+        setSegmentResults(response.data ?? []);
+      })
+      .catch((error: unknown) => {
+        if (canceled) return;
+        const message =
+          error instanceof Error
+            ? error.message
+            : "セグメント類似曲の取得に失敗しました";
+        setSegmentError(message);
+        setSegmentResults([]);
+      })
+      .finally(() => {
+        if (!canceled) {
+          setIsLoadingSegments(false);
+        }
+      });
+
+    return () => {
+      canceled = true;
+    };
+  }, [selectedSong, segmentCollection, segmentLimit]);
 
   const totalLabel = totalSongs ?? songs.length;
   const countLabel = keyword.trim()
@@ -362,6 +423,76 @@ export function SongSearchClient() {
           </p>
         )}
       </section>
+
+      <section className="space-y-6 rounded-3xl border border-white/10 bg-slate-900/60 p-6">
+        <div className="flex flex-wrap items-end gap-4">
+          <div className="flex-1">
+            <p className="text-xs uppercase tracking-[0.4em] text-amber-300">
+              Segment Similarity
+            </p>
+            <h2 className="mt-1 text-2xl font-semibold text-white">
+              セグメント類似検索 (MERT / AST)
+            </h2>
+            <p className="mt-2 text-sm text-slate-300">
+              MERT/AST のセグメント特徴量から近い曲を集計します。
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-4 text-sm text-slate-200">
+            <label className="flex flex-col gap-1">
+              コレクション
+              <select
+                className="rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-white"
+                value={segmentCollection}
+                onChange={(event) =>
+                  setSegmentCollection(event.target.value as SegmentCollection)
+                }
+              >
+                {segmentCollections.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1">
+              件数
+              <select
+                className="rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-white"
+                value={segmentLimit}
+                onChange={(event) => setSegmentLimit(Number(event.target.value))}
+              >
+                {limitOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </div>
+
+        {selectedSong ? (
+          <div className="space-y-4">
+            <div>
+              {isLoadingSegments ? (
+                <p className="text-sm text-slate-300">検索中...</p>
+              ) : segmentError ? (
+                <p className="text-sm text-rose-300">{segmentError}</p>
+              ) : segmentResults.length ? (
+                <SegmentResultsTable items={segmentResults} />
+              ) : (
+                <p className="text-sm text-slate-400">
+                  セグメント類似曲が見つかりませんでした。
+                </p>
+              )}
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-slate-400">
+            楽曲カードのボタンから検索対象を選ぶと、ここにランキングで表示されます。
+          </p>
+        )}
+      </section>
     </div>
   );
 }
@@ -400,6 +531,61 @@ function SimilarResultsTable({ items }: SimilarResultsTableProps) {
               </td>
               <td className="px-4 py-2 text-right font-mono text-sm text-slate-200">
                 {distanceFormatter.format(item.distance)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+type SegmentResultsTableProps = {
+  items: SegmentSimilarItem[];
+};
+
+function SegmentResultsTable({ items }: SegmentResultsTableProps) {
+  return (
+    <div className="overflow-hidden rounded-2xl border border-white/10">
+      <table className="w-full border-collapse text-sm">
+        <thead className="bg-slate-900/70 text-xs uppercase tracking-wide text-slate-400">
+          <tr>
+            <th className="w-16 px-4 py-2 text-left font-semibold">#</th>
+            <th className="px-4 py-2 text-left font-semibold">楽曲</th>
+            <th className="px-4 py-2 text-left font-semibold">アーティスト</th>
+            <th className="px-4 py-2 text-left font-semibold">Source Dir</th>
+            <th className="w-24 px-4 py-2 text-right font-semibold">Score</th>
+            <th className="w-20 px-4 py-2 text-right font-semibold">Hits</th>
+            <th className="w-24 px-4 py-2 text-right font-semibold">Coverage</th>
+            <th className="w-24 px-4 py-2 text-right font-semibold">Density</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((item, index) => (
+            <tr key={item.song.song_id} className="odd:bg-slate-900/40">
+              <td className="px-4 py-2 font-mono text-xs text-slate-500">
+                {String(index + 1).padStart(2, "0")}
+              </td>
+              <td className="px-4 py-2 text-slate-100">
+                {item.song.song_title}
+              </td>
+              <td className="px-4 py-2 text-slate-300">
+                {item.song.artist_name}
+              </td>
+              <td className="px-4 py-2 text-slate-400">
+                {item.song.source_dir}
+              </td>
+              <td className="px-4 py-2 text-right font-mono text-sm text-slate-200">
+                {scoreFormatter.format(item.score)}
+              </td>
+              <td className="px-4 py-2 text-right font-mono text-sm text-slate-200">
+                {item.hit_count}
+              </td>
+              <td className="px-4 py-2 text-right font-mono text-sm text-slate-200">
+                {ratioFormatter.format(item.coverage * 100)}%
+              </td>
+              <td className="px-4 py-2 text-right font-mono text-sm text-slate-200">
+                {ratioFormatter.format(item.density * 100)}%
               </td>
             </tr>
           ))}

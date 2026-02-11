@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import logging
 from typing import Generic, Optional, TypeVar
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from pydantic.generics import GenericModel
 from sqlalchemy import func, select
@@ -12,6 +14,7 @@ from core import playlist_db, song_metadata_db
 from core.channel_db import ChannelDB
 from core.database import get_session
 from core.models import PlaylistHeader as PlaylistHeaderModel, ProcessedCollection
+from core.db_manager import SongVectorDB
 from core.song_queue_db import SongQueueDB
 from core.user_db import get_display_names_by_subs
 from observability import configure_logging, get_request_id, setup_observability
@@ -22,16 +25,33 @@ app = FastAPI(
     version="0.1.0",
     description="Operational endpoints backing the Next.js dashboard",
 )
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 setup_observability(app)
+
+logger = logging.getLogger("song_rec_api")
 
 song_queue_db_client = SongQueueDB()
 channel_db_client = ChannelDB()
 
-DEFAULT_SONG_LIMIT = 200
+DEFAULT_SONG_LIMIT = 30
 MAX_SONG_LIMIT = 1000
 DEFAULT_PLAYLIST_LIMIT = 20
 MAX_PLAYLIST_LIMIT = 100
 STATS_TOP_LIMIT = 10
+SIMILARITY_COLLECTIONS = {
+    "full": "songs_segments_full",
+    "balance": "songs_segments_balance",
+    "minimal": "songs_segments_minimal",
+}
+
+
+vector_db_clients: dict[str, SongVectorDB] = {}
 
 
 class ResponseMeta(BaseModel):
@@ -107,6 +127,11 @@ class SongSummary(BaseModel):
     excluded_from_search: bool
 
 
+class SimilarSongItem(BaseModel):
+    song: SongSummary
+    distance: float
+
+
 class PlaylistHeader(BaseModel):
     playlist_id: str
     playlist_name: str
@@ -175,6 +200,53 @@ def _convert_song_summary(song_id: str, metadata: dict) -> SongSummary:
 def _resolve_source_dir(song_id: str, songs_meta: dict[str, dict]) -> str:
     metadata = songs_meta.get(song_id)
     return metadata.get("source_dir", "") if metadata else ""
+
+
+def _get_vector_client(key: str) -> SongVectorDB:
+    collection = SIMILARITY_COLLECTIONS.get(key)
+    if not collection:
+        raise HTTPException(status_code=400, detail="Unsupported vector db")
+
+    client = vector_db_clients.get(collection)
+    if client is None:
+        try:
+            client = SongVectorDB(collection_name=collection)
+        except Exception as exc:  # pragma: no cover - remote client init
+            raise HTTPException(
+                status_code=500, detail="Failed to initialize vector store"
+            ) from exc
+        vector_db_clients[collection] = client
+    return client
+
+
+def _log_warning(event: str, **payload) -> None:
+    logger.warning(
+        event,
+        extra={
+            "request_id": get_request_id(),
+            "payload": {"event": event, **payload},
+        },
+    )
+
+
+def _log_error(event: str, **payload) -> None:
+    logger.error(
+        event,
+        extra={
+            "request_id": get_request_id(),
+            "payload": {"event": event, **payload},
+        },
+    )
+
+
+def _log_debug(event: str, **payload) -> None:
+    logger.debug(
+        event,
+        extra={
+            "request_id": get_request_id(),
+            "payload": {"event": event, **payload},
+        },
+    )
 
 
 def _build_playlist_entries(headers: list[dict]) -> list[PlaylistHistoryEntry]:
@@ -294,12 +366,15 @@ def _load_collection_counts() -> DbCollectionCounts:
     name_aliases = {
         "full": "full",
         "songs_full": "full",
+        "songs_segments_full": "full",
         "balance": "balance",
         "balanced": "balance",
         "songs_balance": "balance",
         "songs_balanced": "balance",
+        "songs_segments_balance": "balance",
         "minimal": "minimal",
         "songs_minimal": "minimal",
+        "songs_segments_minimal": "minimal",
         "seg_mert": "seg_mert",
         "songs_segments_mert": "seg_mert",
         "seg_ast": "seg_ast",
@@ -399,21 +474,143 @@ async def list_songs(
         le=MAX_SONG_LIMIT,
         description="Maximum number of songs to return",
     ),
+    offset: int = Query(
+        default=0,
+        ge=0,
+        description="Offset of the first song to return",
+    ),
 ):
     try:
         if keyword and keyword.strip():
-            records = song_metadata_db.search_by_keyword(keyword.strip(), limit=limit)
+            trimmed = keyword.strip()
+            total = song_metadata_db.count_by_keyword(trimmed)
+            records = song_metadata_db.search_by_keyword(
+                trimmed,
+                limit=limit,
+                offset=offset,
+            )
         else:
-            records = song_metadata_db.list_all(limit=limit)
+            total = song_metadata_db.count_songs()
+            records = song_metadata_db.list_all(limit=limit, offset=offset)
 
         songs = [
             _convert_song_summary(song_id, metadata) for song_id, metadata in records
         ]
-        return build_envelope(songs, total=len(songs), limit=limit)
+        return build_envelope(songs, total=total, limit=limit, offset=offset)
     except SQLAlchemyError as exc:
         raise HTTPException(
             status_code=500, detail="Database error while loading songs"
         ) from exc
+
+
+@app.get(
+    "/api/songs/{song_id}/similar",
+    response_model=ResponseEnvelope[list[SimilarSongItem]],
+)
+async def get_similar_songs(
+    song_id: str,
+    request: Request,
+    db: str = Query(
+        default="full",
+        description="Vector DB to query",
+        pattern="^(full|balance|minimal)$",
+    ),
+    n_results: int = Query(
+        default=10,
+        ge=1,
+        le=50,
+        description="Number of similar songs to return",
+    ),
+):
+    client = _get_vector_client(db)
+    collection_name = getattr(client.collection, "name", None)
+    request_context = {
+        "song_id": song_id,
+        "db": db,
+        "collection": collection_name,
+        "path": request.url.path,
+    }
+
+    base_song = client.get_song(song_id)
+    _log_debug(
+        "similar_song_lookup_result",
+        **{**request_context, "result": "found" if base_song else "missing"},
+    )
+
+    if base_song is None:
+        _log_warning("similar_song_not_found", reason="song_missing", **request_context)
+        raise HTTPException(
+            status_code=404, detail="Song not found in the selected collection"
+        )
+
+    embedding = base_song.get("embedding")
+    if embedding is None:
+        _log_warning(
+            "similar_song_embedding_missing",
+            reason="embedding_missing",
+            **request_context,
+        )
+        raise HTTPException(
+            status_code=404, detail="Song embedding missing from vector store"
+        )
+
+    embedding_vector = list(embedding)
+    if not embedding_vector:
+        _log_warning(
+            "similar_song_embedding_missing",
+            song_id=song_id,
+            db=db,
+            path=request.url.path,
+        )
+        raise HTTPException(
+            status_code=404, detail="Song embedding missing from vector store"
+        )
+
+    try:
+        raw_results = client.search_similar(
+            embedding_vector,
+            n_results=n_results + 1,
+            where={"excluded_from_search": {"$ne": True}},
+        )
+    except Exception as exc:  # pragma: no cover - vector DB runtime errors
+        _log_error(
+            "similar_song_query_failed",
+            song_id=song_id,
+            db=db,
+            error=str(exc),
+            path=request.url.path,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to search similar songs: {exc}",
+        ) from exc
+
+    candidate_ids = raw_results.get("ids", [[]])
+    candidate_distances = raw_results.get("distances", [[]])
+    ids = candidate_ids[0] if candidate_ids else []
+    distances = candidate_distances[0] if candidate_distances else []
+
+    if not ids:
+        return build_envelope([], total=0, limit=n_results)
+
+    metadata_map = song_metadata_db.get_songs_as_dict(ids)
+    similar_items: list[SimilarSongItem] = []
+    for candidate_id, distance in zip(ids, distances):
+        if candidate_id == song_id:
+            continue
+        metadata = metadata_map.get(candidate_id)
+        if not metadata:
+            continue
+        similar_items.append(
+            SimilarSongItem(
+                song=_convert_song_summary(candidate_id, metadata),
+                distance=float(distance),
+            )
+        )
+        if len(similar_items) >= n_results:
+            break
+
+    return build_envelope(similar_items, total=len(similar_items), limit=n_results)
 
 
 @app.get(

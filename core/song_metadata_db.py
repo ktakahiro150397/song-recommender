@@ -460,6 +460,33 @@ def get_processed_collections(song_id: str) -> list[str]:
         return list(session.execute(stmt).scalars().all())
 
 
+def get_processed_collections_batch(song_ids: list[str]) -> dict[str, set[str]]:
+    """
+    複数の楽曲が処理済みのコレクション名一覧を一括取得する（バッチ処理用）
+
+    Args:
+        song_ids: 楽曲IDのリスト
+
+    Returns:
+        {song_id: {collection_name, ...}} の辞書
+    """
+    if not song_ids:
+        return {}
+
+    with get_session() as session:
+        stmt = select(ProcessedCollection).where(
+            ProcessedCollection.song_id.in_(song_ids)
+        )
+        results = session.execute(stmt).scalars().all()
+
+        # 各song_idに対して処理済みコレクション名のセットを構築
+        collections_map: dict[str, set[str]] = {song_id: set() for song_id in song_ids}
+        for record in results:
+            collections_map[record.song_id].add(record.collection_name)
+
+        return collections_map
+
+
 def unmark_as_processed(song_id: str, collection_name: str) -> bool:
     """
     楽曲の処理済みフラグを削除する

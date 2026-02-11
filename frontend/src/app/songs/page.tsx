@@ -1,13 +1,10 @@
 import { SongSearchClient } from "@/components/song-search-client";
-import { searchSongs } from "@/lib/api-client";
 
 export const metadata = {
   title: "楽曲検索 | Song Recommender",
 };
 
 export default async function SongsPage() {
-  const { data: songs } = await searchSongs();
-
   return (
     <div className="space-y-8">
       <section className="rounded-3xl border border-white/10 bg-slate-900/60 p-8">
@@ -24,7 +21,7 @@ export default async function SongsPage() {
         </p>
       </section>
 
-      <SongSearchClient songs={songs} />
+      <SongSearchClient />
     </div>
   );
 }

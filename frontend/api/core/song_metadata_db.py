@@ -153,7 +153,10 @@ def get_by_youtube_id(youtube_id: str) -> dict | None:
 
 
 def search_by_keyword(
-    keyword: str, limit: int = 10000, exclude_from_search: bool = True
+    keyword: str,
+    limit: int = 10000,
+    offset: int = 0,
+    exclude_from_search: bool = True,
 ) -> list[tuple[str, dict]]:
     """
     キーワードでメタデータを部分一致検索する（SQL LIKE検索）
@@ -161,6 +164,7 @@ def search_by_keyword(
     Args:
         keyword: 検索キーワード
         limit: 最大取得件数
+        offset: 取得開始位置
         exclude_from_search: 検索除外フラグがTrueの曲を除外するか
 
     Returns:
@@ -181,7 +185,8 @@ def search_by_keyword(
         if exclude_from_search:
             stmt = stmt.where(Song.excluded_from_search == False)
 
-        stmt = stmt.limit(limit)
+        stmt = stmt.order_by(Song.registered_at.desc(), Song.song_id)
+        stmt = stmt.offset(offset).limit(limit)
         songs = list(session.execute(stmt).scalars().all())
         # セッション内で辞書に変換（detached instance エラーを防ぐ）
         results = [
@@ -264,14 +269,50 @@ def count_songs(exclude_from_search: bool = False) -> int:
         return session.scalar(stmt) or 0
 
 
+def count_by_keyword(keyword: str, exclude_from_search: bool = True) -> int:
+    """
+    キーワードで一致する楽曲数をカウントする
+
+    Args:
+        keyword: 検索キーワード
+        exclude_from_search: 検索除外フラグがTrueの曲を除外するか
+
+    Returns:
+        楽曲数
+    """
+    from sqlalchemy import func
+
+    with get_session() as session:
+        keyword_pattern = f"%{keyword}%"
+        stmt = (
+            select(func.count())
+            .select_from(Song)
+            .where(
+                or_(
+                    Song.song_id.like(keyword_pattern),
+                    Song.filename.like(keyword_pattern),
+                    Song.song_title.like(keyword_pattern),
+                    Song.artist_name.like(keyword_pattern),
+                    Song.source_dir.like(keyword_pattern),
+                )
+            )
+        )
+        if exclude_from_search:
+            stmt = stmt.where(Song.excluded_from_search == False)
+        return session.scalar(stmt) or 0
+
+
 def list_all(
-    limit: int = 100, exclude_from_search: bool = False
+    limit: int = 100,
+    offset: int = 0,
+    exclude_from_search: bool = False,
 ) -> list[tuple[str, dict]]:
     """
     登録されている楽曲一覧を取得する
 
     Args:
         limit: 取得件数上限
+        offset: 取得開始位置
         exclude_from_search: 検索除外フラグがTrueの曲を除外するか
 
     Returns:
@@ -281,7 +322,8 @@ def list_all(
         stmt = select(Song)
         if exclude_from_search:
             stmt = stmt.where(Song.excluded_from_search == False)
-        stmt = stmt.limit(limit)
+        stmt = stmt.order_by(Song.registered_at.desc(), Song.song_id)
+        stmt = stmt.offset(offset).limit(limit)
         songs = list(session.execute(stmt).scalars().all())
         # セッション内で辞書に変換（detached instance エラーを防ぐ）
         results = [

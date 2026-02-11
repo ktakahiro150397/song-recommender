@@ -12,4 +12,5 @@ dependencies = [
     "sqlalchemy>=2.0.36",
     "pytest>=8.3.4",
     "httpx>=0.25.0",
+    "chromadb>=0.5.4",
 ]

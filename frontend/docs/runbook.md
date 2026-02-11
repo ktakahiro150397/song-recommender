@@ -30,6 +30,13 @@ This runbook describes how to start the FastAPI backend and Next.js frontend, ho
    ```
 4. Health check: `curl http://localhost:8001/api/health` should return `{ "status": "ok" }`.
 
+### Vector collections
+- `songs_segments_full`
+- `songs_segments_balance`
+- `songs_segments_minimal`
+- `songs_segments_ast`
+- `songs_segments_mert`
+
 ## 4. Frontend (Next.js) Startup
 1. Install dependencies: `npm install`
 2. Configure `.env.local` (see `docs/env-setup.md`). Set `NEXT_PUBLIC_API_BASE_URL=http://localhost:8001` for local dev.

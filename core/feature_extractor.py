@@ -290,6 +290,38 @@ class FeatureExtractor:
         features = self.extract(audio_path)
         return features.to_vector(mode or self.mode)
 
+    def extract_from_waveform(
+        self, y: np.ndarray, sr: int | None = None
+    ) -> AudioFeatures:
+        """
+        波形データから直接特徴量を抽出する（ファイル読み込みなし）
+
+        Args:
+            y: 波形データ（NumPy配列）
+            sr: サンプリングレート（Noneの場合はself.srを使用）
+
+        Returns:
+            AudioFeatures: 抽出した特徴量
+        """
+        return self._extract_from_audio(y, sr or self.sr)
+
+    def extract_to_vector_from_waveform(
+        self, y: np.ndarray, sr: int | None = None, mode: FeatureMode | None = None
+    ) -> list[float]:
+        """
+        波形データから直接特徴量ベクトルを抽出する
+
+        Args:
+            y: 波形データ（NumPy配列）
+            sr: サンプリングレート（Noneの場合はself.srを使用）
+            mode: 特徴量モード（Noneの場合はコンストラクタで指定したモード）
+
+        Returns:
+            特徴量ベクトル
+        """
+        features = self.extract_from_waveform(y, sr)
+        return features.to_vector(mode or self.mode)
+
 
 # ===== 動作確認用 =====
 if __name__ == "__main__":

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getSimilarSegments, getSimilarSongs, searchSongs } from "@/lib/api-client";
+import { formatDisplayDate } from "@/lib/formatters";
 import { SegmentSimilarItem, SimilarSongItem, SongSummary } from "@/types/api";
 
 const distanceFormatter = new Intl.NumberFormat("en-US", {
@@ -62,7 +63,7 @@ export function SongSearchClient() {
   const [segmentResults, setSegmentResults] = useState<SegmentSimilarItem[]>([]);
   const [isLoadingSegments, setIsLoadingSegments] = useState(false);
   const [segmentError, setSegmentError] = useState<string | null>(null);
-  const [isMobilePanelOpen, setIsMobilePanelOpen] = useState(false);
+  const [isResultsPanelOpen, setIsResultsPanelOpen] = useState(false);
   const loadIdRef = useRef(0);
   const offsetRef = useRef(0);
   const totalRef = useRef<number | null>(null);
@@ -252,30 +253,13 @@ export function SongSearchClient() {
 
   useEffect(() => {
     if (!selectedSong) {
-      setIsMobilePanelOpen(false);
+      setIsResultsPanelOpen(false);
     }
   }, [selectedSong]);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const mediaQuery = window.matchMedia("(min-width: 1280px)");
-    const handleChange = (event: MediaQueryListEvent | MediaQueryList) => {
-      if (event.matches) {
-        setIsMobilePanelOpen(false);
-      }
-    };
-
-    handleChange(mediaQuery);
-    const listener = (event: MediaQueryListEvent) => handleChange(event);
-    mediaQuery.addEventListener?.("change", listener);
-    return () => {
-      mediaQuery.removeEventListener?.("change", listener);
-    };
-  }, []);
-
-  useEffect(() => {
     if (typeof document === "undefined") return;
-    if (!isMobilePanelOpen) {
+    if (!isResultsPanelOpen) {
       document.body.style.removeProperty("overflow");
       return;
     }
@@ -284,19 +268,79 @@ export function SongSearchClient() {
     return () => {
       document.body.style.overflow = previous;
     };
-  }, [isMobilePanelOpen]);
+  }, [isResultsPanelOpen]);
 
   useEffect(() => {
-    if (!isMobilePanelOpen) return;
+    if (!isResultsPanelOpen) return;
     if (typeof window === "undefined") return;
     const handleKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        setIsMobilePanelOpen(false);
+        setIsResultsPanelOpen(false);
       }
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [isMobilePanelOpen]);
+  }, [isResultsPanelOpen]);
+
+  const renderSimilarResults = () => {
+    if (isLoadingSimilar) {
+      return (
+        <LoadingIndicator
+          label="類似曲を検索中..."
+          note="モーダルを閉じても検索処理は継続します"
+        />
+      );
+    }
+    if (similarError) {
+      return <p className="text-sm text-rose-300">{similarError}</p>;
+    }
+    if (!similarSongs.length) {
+      return (
+        <p className="text-sm text-slate-400">類似曲が見つかりませんでした。</p>
+      );
+    }
+    return (
+      <>
+        <div className="lg:hidden">
+          <SimilarResultsCards items={similarSongs} />
+        </div>
+        <div className="hidden lg:block">
+          <SimilarResultsTable items={similarSongs} />
+        </div>
+      </>
+    );
+  };
+
+  const renderSegmentResults = () => {
+    if (isLoadingSegments) {
+      return (
+        <LoadingIndicator
+          label="セグメント類似を解析中..."
+          note="モーダルを閉じても検索処理は継続します"
+        />
+      );
+    }
+    if (segmentError) {
+      return <p className="text-sm text-rose-300">{segmentError}</p>;
+    }
+    if (!segmentResults.length) {
+      return (
+        <p className="text-sm text-slate-400">
+          セグメント類似曲が見つかりませんでした。
+        </p>
+      );
+    }
+    return (
+      <>
+        <div className="lg:hidden">
+          <SegmentResultsCards items={segmentResults} />
+        </div>
+        <div className="hidden lg:block">
+          <SegmentResultsTable items={segmentResults} />
+        </div>
+      </>
+    );
+  };
 
   const renderSimilarityPanels = () => (
     <>
@@ -365,19 +409,7 @@ export function SongSearchClient() {
                   : "-"}
               </p>
             </div>
-            <div>
-              {isLoadingSimilar ? (
-                <p className="text-sm text-slate-300">検索中...</p>
-              ) : similarError ? (
-                <p className="text-sm text-rose-300">{similarError}</p>
-              ) : similarSongs.length ? (
-                <SimilarResultsTable items={similarSongs} />
-              ) : (
-                <p className="text-sm text-slate-400">
-                  類似曲が見つかりませんでした。
-                </p>
-              )}
-            </div>
+            <div>{renderSimilarResults()}</div>
           </div>
         ) : (
           <p className="text-sm text-slate-400">
@@ -435,19 +467,7 @@ export function SongSearchClient() {
 
         {selectedSong ? (
           <div className="space-y-4">
-            <div>
-              {isLoadingSegments ? (
-                <p className="text-sm text-slate-300">検索中...</p>
-              ) : segmentError ? (
-                <p className="text-sm text-rose-300">{segmentError}</p>
-              ) : segmentResults.length ? (
-                <SegmentResultsTable items={segmentResults} />
-              ) : (
-                <p className="text-sm text-slate-400">
-                  セグメント類似曲が見つかりませんでした。
-                </p>
-              )}
-            </div>
+            <div>{renderSegmentResults()}</div>
           </div>
         ) : (
           <p className="text-sm text-slate-400">
@@ -460,193 +480,165 @@ export function SongSearchClient() {
 
   return (
     <>
-      <div className="space-y-6 pb-28 xl:grid xl:grid-cols-[minmax(0,1fr)_360px] xl:gap-6 xl:space-y-0 xl:pb-0">
-        <div className="space-y-6">
-          <div className="rounded-2xl border border-white/10 bg-slate-900/60 p-6">
-            <label className="flex flex-col gap-2 text-sm text-slate-200">
-              キーワード
-              <input
-                className="rounded-xl border border-white/10 bg-slate-900 px-4 py-3 text-base text-white focus:border-cyan-400 focus:outline-none"
-                placeholder="曲名・アーティストで検索"
-                value={keyword}
-                onChange={(event) => setKeyword(event.target.value)}
-              />
-            </label>
-            <p className="mt-3 text-xs text-slate-400">{countLabel}</p>
-            {songsError ? (
-              <p className="mt-2 text-xs text-rose-300">{songsError}</p>
-            ) : null}
-          </div>
-
-          <div className="hidden overflow-hidden rounded-2xl border border-white/10 xl:block">
-            <table className="w-full border-collapse text-sm">
-              <thead className="bg-slate-900/70 text-xs uppercase tracking-wide text-slate-400">
-                <tr>
-                  <th className="px-4 py-3 text-left font-semibold">楽曲</th>
-                  <th className="px-4 py-3 text-left font-semibold">アーティスト</th>
-                  <th className="w-20 px-4 py-3 text-left font-semibold">BPM</th>
-                  <th className="w-32 px-4 py-3 text-left font-semibold">登録日</th>
-                  <th className="w-32 px-4 py-3 text-left font-semibold">操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {songs.map((song) => (
-                  <tr key={song.song_id} className="odd:bg-slate-900/40">
-                    <td className="px-4 py-3 text-slate-100">
-                      {song.youtube_id ? (
-                        <a
-                          className="font-semibold text-cyan-200 underline decoration-cyan-300 underline-offset-4 hover:text-cyan-100"
-                          href={`https://music.youtube.com/watch?v=${encodeURIComponent(
-                            song.youtube_id
-                          )}`}
-                          rel="noreferrer"
-                          target="_blank"
-                        >
-                          {song.song_title}
-                        </a>
-                      ) : (
-                        song.song_title
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-slate-300">{song.artist_name}</td>
-                    <td className="px-4 py-3 font-mono text-xs text-slate-300">
-                      {typeof song.bpm === "number"
-                        ? bpmFormatter.format(song.bpm)
-                        : "-"}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-slate-400">
-                      {new Date(song.registered_at).toLocaleDateString()}
-                    </td>
-                    <td className="px-4 py-3">
-                      <button
-                        className={`w-full rounded-lg border px-3 py-2 text-xs font-medium transition ${
-                          selectedSong?.song_id === song.song_id
-                            ? "border-cyan-400 bg-cyan-400/10 text-cyan-100"
-                            : "border-white/15 text-slate-200 hover:border-cyan-400 hover:text-cyan-200"
-                        }`}
-                        onClick={() => setSelectedSong({ ...song })}
-                      >
-                        類似曲を検索
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="space-y-3 xl:hidden">
-            {songs.map((song) => (
-              <div
-                key={song.song_id}
-                className="rounded-2xl border border-white/10 bg-slate-900/70 p-4 shadow-lg"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-xs uppercase tracking-[0.3em] text-cyan-300">
-                      Song
-                    </p>
-                    <p className="mt-1 truncate text-lg font-semibold text-white">
-                      {song.youtube_id ? (
-                        <a
-                          className="underline decoration-cyan-300 underline-offset-4 hover:text-cyan-100"
-                          href={`https://music.youtube.com/watch?v=${encodeURIComponent(
-                            song.youtube_id
-                          )}`}
-                          rel="noreferrer"
-                          target="_blank"
-                        >
-                          {song.song_title}
-                        </a>
-                      ) : (
-                        song.song_title
-                      )}
-                    </p>
-                    <p className="truncate text-sm text-slate-300">
-                      {song.artist_name}
-                    </p>
-                  </div>
-                  <button
-                    className={`shrink-0 rounded-xl border px-3 py-2 text-xs font-semibold transition ${
-                      selectedSong?.song_id === song.song_id
-                        ? "border-cyan-400 bg-cyan-400/10 text-cyan-100"
-                        : "border-white/20 text-slate-100 hover:border-cyan-400 hover:text-cyan-200"
-                    }`}
-                    onClick={() => setSelectedSong({ ...song })}
-                  >
-                    類似曲
-                  </button>
-                </div>
-                <dl className="mt-4 grid grid-cols-2 gap-3 text-xs text-slate-400">
-                  <div>
-                    <dt className="text-[0.7rem] uppercase tracking-widest text-slate-500">
-                      BPM
-                    </dt>
-                    <dd className="text-sm text-white">
-                      {typeof song.bpm === "number"
-                        ? bpmFormatter.format(song.bpm)
-                        : "-"}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-[0.7rem] uppercase tracking-widest text-slate-500">
-                      登録日
-                    </dt>
-                    <dd className="text-sm text-white">
-                      {new Date(song.registered_at).toLocaleDateString()}
-                    </dd>
-                  </div>
-                </dl>
-              </div>
-            ))}
-          </div>
-
-          {isLoadingSongs ? (
-            <p className="text-sm text-slate-300">検索中...</p>
-          ) : songs.length === 0 ? (
-            <p className="text-sm text-slate-400">該当する楽曲がありません。</p>
+      <div className="space-y-6 pb-32">
+        <div className="rounded-2xl border border-white/10 bg-slate-900/60 p-6">
+          <label className="flex flex-col gap-2 text-sm text-slate-200">
+            キーワード
+            <input
+              className="rounded-xl border border-white/10 bg-slate-900 px-4 py-3 text-base text-white focus:border-cyan-400 focus:outline-none"
+              placeholder="曲名・アーティストで検索"
+              value={keyword}
+              onChange={(event) => setKeyword(event.target.value)}
+            />
+          </label>
+          <p className="mt-3 text-xs text-slate-400">{countLabel}</p>
+          {songsError ? (
+            <p className="mt-2 text-xs text-rose-300">{songsError}</p>
           ) : null}
-
-          <div ref={sentinelRef} aria-hidden="true" />
-
-          {isLoadingMore ? (
-            <p className="text-sm text-slate-400">続きを読み込み中...</p>
-          ) : hasMore ? null : (
-            <p className="text-sm text-slate-500">これ以上の楽曲はありません。</p>
-          )}
-
-          <div className="rounded-2xl border border-dashed border-white/15 bg-slate-900/40 p-4 text-sm text-slate-300 xl:hidden">
-            {selectedSong ? (
-              <>
-                <p className="font-semibold text-white">
-                  現在の選択: {selectedSong.song_title}
-                </p>
-                <p className="text-xs text-slate-400">
-                  画面下部のバーから「結果を見る」をタップすると、類似曲ランキングがすぐに開きます。
-                </p>
-              </>
-            ) : (
-              <>
-                <p>
-                  「類似曲を検索」を押すと画面下にバーが表示され、そこから結果パネルを開けます。
-                </p>
-                <p className="mt-2 text-xs text-slate-500">
-                  リストを離れずに類似結果を確認できます。
-                </p>
-              </>
-            )}
-          </div>
         </div>
 
-        <aside className="hidden xl:block">
-          <div className="sticky top-6 space-y-6">{renderSimilarityPanels()}</div>
-        </aside>
+        <div className="hidden overflow-hidden rounded-2xl border border-white/10 lg:block">
+          <table className="w-full border-collapse text-sm">
+            <thead className="bg-slate-900/70 text-xs uppercase tracking-wide text-slate-400">
+              <tr>
+                <th className="px-4 py-3 text-left font-semibold">楽曲</th>
+                <th className="px-4 py-3 text-left font-semibold">アーティスト</th>
+                <th className="w-20 px-4 py-3 text-left font-semibold">BPM</th>
+                <th className="w-32 px-4 py-3 text-left font-semibold">登録日</th>
+                <th className="w-32 px-4 py-3 text-left font-semibold">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {songs.map((song) => (
+                <tr key={song.song_id} className="odd:bg-slate-900/40">
+                  <td className="px-4 py-3 text-slate-100">
+                    {song.youtube_id ? (
+                      <a
+                        className="font-semibold text-cyan-200 underline decoration-cyan-300 underline-offset-4 hover:text-cyan-100"
+                        href={`https://music.youtube.com/watch?v=${encodeURIComponent(
+                          song.youtube_id
+                        )}`}
+                        rel="noreferrer"
+                        target="_blank"
+                      >
+                        {song.song_title}
+                      </a>
+                    ) : (
+                      song.song_title
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-slate-300">{song.artist_name}</td>
+                  <td className="px-4 py-3 font-mono text-xs text-slate-300">
+                    {typeof song.bpm === "number"
+                      ? bpmFormatter.format(song.bpm)
+                      : "-"}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-slate-400">
+                    {formatDisplayDate(song.registered_at)}
+                  </td>
+                  <td className="px-4 py-3">
+                    <button
+                      className={`w-full rounded-lg border px-3 py-2 text-xs font-medium transition ${
+                        selectedSong?.song_id === song.song_id
+                          ? "border-cyan-400 bg-cyan-400/10 text-cyan-100"
+                          : "border-white/15 text-slate-200 hover:border-cyan-400 hover:text-cyan-200"
+                      }`}
+                      onClick={() => setSelectedSong({ ...song })}
+                    >
+                      類似曲を検索
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="space-y-3 lg:hidden">
+          {songs.map((song) => (
+            <div
+              key={song.song_id}
+              className="rounded-2xl border border-white/10 bg-slate-900/70 p-4 shadow-lg"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-xs uppercase tracking-[0.3em] text-cyan-300">
+                    Song
+                  </p>
+                  <p className="mt-1 truncate text-lg font-semibold text-white">
+                    {song.youtube_id ? (
+                      <a
+                        className="underline decoration-cyan-300 underline-offset-4 hover:text-cyan-100"
+                        href={`https://music.youtube.com/watch?v=${encodeURIComponent(
+                          song.youtube_id
+                        )}`}
+                        rel="noreferrer"
+                        target="_blank"
+                      >
+                        {song.song_title}
+                      </a>
+                    ) : (
+                      song.song_title
+                    )}
+                  </p>
+                  <p className="truncate text-sm text-slate-300">
+                    {song.artist_name}
+                  </p>
+                </div>
+                <button
+                  className={`shrink-0 rounded-xl border px-3 py-2 text-xs font-semibold transition ${
+                    selectedSong?.song_id === song.song_id
+                      ? "border-cyan-400 bg-cyan-400/10 text-cyan-100"
+                      : "border-white/20 text-slate-100 hover:border-cyan-400 hover:text-cyan-200"
+                  }`}
+                  onClick={() => setSelectedSong({ ...song })}
+                >
+                  類似曲
+                </button>
+              </div>
+              <dl className="mt-4 grid grid-cols-2 gap-3 text-xs text-slate-400">
+                <div>
+                  <dt className="text-[0.7rem] uppercase tracking-widest text-slate-500">
+                    BPM
+                  </dt>
+                  <dd className="text-sm text-white">
+                    {typeof song.bpm === "number"
+                      ? bpmFormatter.format(song.bpm)
+                      : "-"}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-[0.7rem] uppercase tracking-widest text-slate-500">
+                    登録日
+                  </dt>
+                  <dd className="text-sm text-white">
+                    {formatDisplayDate(song.registered_at)}
+                  </dd>
+                </div>
+              </dl>
+            </div>
+          ))}
+        </div>
+
+        {isLoadingSongs ? (
+          <LoadingIndicator label="検索中..." />
+        ) : songs.length === 0 ? (
+          <p className="text-sm text-slate-400">該当する楽曲がありません。</p>
+        ) : null}
+
+        <div ref={sentinelRef} aria-hidden="true" />
+
+        {isLoadingMore ? (
+          <p className="text-sm text-slate-400">続きを読み込み中...</p>
+        ) : hasMore ? null : (
+          <p className="text-sm text-slate-500">これ以上の楽曲はありません。</p>
+        )}
       </div>
 
       {selectedSong ? (
         <button
-          className="fixed bottom-4 left-1/2 z-40 flex w-[calc(100%-32px)] max-w-md -translate-x-1/2 items-center justify-between rounded-2xl border border-cyan-400 bg-slate-950/80 px-4 py-3 text-left text-white shadow-2xl backdrop-blur xl:hidden"
-          onClick={() => setIsMobilePanelOpen(true)}
+          className="fixed bottom-4 left-1/2 z-40 flex w-[calc(100%-32px)] max-w-md -translate-x-1/2 items-center justify-between rounded-2xl border border-cyan-400 bg-slate-950/85 px-4 py-3 text-left text-white shadow-2xl backdrop-blur md:max-w-lg lg:max-w-2xl"
+          onClick={() => setIsResultsPanelOpen(true)}
           aria-label="類似結果を開く"
         >
           <div className="max-w-[70%]">
@@ -660,37 +652,41 @@ export function SongSearchClient() {
               {selectedSong.artist_name}
             </p>
           </div>
-          <span className="text-sm font-semibold text-cyan-200">結果を見る</span>
+          <span className="text-sm font-semibold text-cyan-200 lg:text-base">
+            結果を見る
+          </span>
         </button>
       ) : null}
 
-      {isMobilePanelOpen && selectedSong ? (
+      {isResultsPanelOpen && selectedSong ? (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center xl:hidden"
+          className="fixed inset-0 z-50 flex items-end justify-center lg:items-center"
           role="dialog"
           aria-modal="true"
           aria-label="類似検索結果"
         >
           <div
             className="absolute inset-0 bg-black/70"
-            onClick={() => setIsMobilePanelOpen(false)}
+            onClick={() => setIsResultsPanelOpen(false)}
           />
-          <div className="relative w-full max-w-2xl rounded-t-3xl border border-white/10 bg-slate-950 p-6 shadow-2xl">
+          <div className="relative w-full max-w-2xl rounded-t-3xl border border-white/10 bg-slate-950 p-6 shadow-2xl lg:max-w-5xl lg:rounded-3xl lg:p-8">
             <div className="mb-4 flex items-center justify-between">
               <div>
                 <p className="text-xs uppercase tracking-[0.4em] text-cyan-300">
                   Similarity
                 </p>
-                <p className="text-base font-semibold text-white">類似結果</p>
+                <p className="text-base font-semibold text-white lg:text-xl">
+                  類似結果
+                </p>
               </div>
               <button
                 className="rounded-full border border-white/20 px-3 py-1 text-sm text-slate-200"
-                onClick={() => setIsMobilePanelOpen(false)}
+                onClick={() => setIsResultsPanelOpen(false)}
               >
                 閉じる
               </button>
             </div>
-            <div className="max-h-[70vh] space-y-6 overflow-y-auto pr-1">
+            <div className="max-h-[80vh] space-y-6 overflow-y-auto pr-1 lg:pr-2">
               {renderSimilarityPanels()}
             </div>
           </div>
@@ -706,8 +702,8 @@ type SimilarResultsTableProps = {
 
 function SimilarResultsTable({ items }: SimilarResultsTableProps) {
   return (
-    <div className="overflow-hidden rounded-2xl border border-white/10">
-      <table className="w-full border-collapse text-sm">
+    <div className="overflow-x-auto rounded-2xl border border-white/10">
+      <table className="min-w-[640px] border-collapse text-sm">
         <thead className="bg-slate-900/70 text-xs uppercase tracking-wide text-slate-400">
           <tr>
             <th className="w-16 px-4 py-2 text-left font-semibold">#</th>
@@ -747,10 +743,15 @@ type SegmentResultsTableProps = {
   items: SegmentSimilarItem[];
 };
 
+type LoadingIndicatorProps = {
+  label: string;
+  note?: string;
+};
+
 function SegmentResultsTable({ items }: SegmentResultsTableProps) {
   return (
-    <div className="overflow-hidden rounded-2xl border border-white/10">
-      <table className="w-full border-collapse text-sm">
+    <div className="overflow-x-auto rounded-2xl border border-white/10">
+      <table className="min-w-[720px] border-collapse text-sm">
         <thead className="bg-slate-900/70 text-xs uppercase tracking-wide text-slate-400">
           <tr>
             <th className="w-16 px-4 py-2 text-left font-semibold">#</th>
@@ -794,6 +795,109 @@ function SegmentResultsTable({ items }: SegmentResultsTableProps) {
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+function LoadingIndicator({ label, note }: LoadingIndicatorProps) {
+  return (
+    <div className="space-y-2" role="status" aria-live="polite">
+      <div className="flex items-center gap-3 text-sm text-slate-300">
+        <span className="inline-flex h-4 w-4 animate-spin rounded-full border-2 border-cyan-300 border-t-transparent" />
+        <span>{label}</span>
+      </div>
+      {note ? (
+        <p className="text-xs text-slate-500">{note}</p>
+      ) : null}
+    </div>
+  );
+}
+
+function SimilarResultsCards({ items }: SimilarResultsTableProps) {
+  return (
+    <div className="space-y-3">
+      {items.map((item, index) => (
+        <div
+          key={item.song.song_id}
+          className="rounded-2xl border border-white/10 bg-slate-900/70 p-4 shadow-lg"
+        >
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <p className="text-xs uppercase tracking-[0.4em] text-cyan-300">
+                Rank {String(index + 1).padStart(2, "0")}
+              </p>
+              <p className="mt-1 text-lg font-semibold text-white">
+                {item.song.song_title}
+              </p>
+              <p className="text-sm text-slate-300">{item.song.artist_name}</p>
+            </div>
+            <p className="text-right font-mono text-sm text-cyan-200">
+              {distanceFormatter.format(item.distance)}
+            </p>
+          </div>
+          <p className="mt-3 text-xs text-slate-400">
+            Source Dir: {item.song.source_dir ?? "-"}
+          </p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SegmentResultsCards({ items }: SegmentResultsTableProps) {
+  return (
+    <div className="space-y-3">
+      {items.map((item, index) => (
+        <div
+          key={item.song.song_id}
+          className="rounded-2xl border border-white/10 bg-slate-900/70 p-4 shadow-lg"
+        >
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <p className="text-xs uppercase tracking-[0.4em] text-amber-300">
+                Rank {String(index + 1).padStart(2, "0")}
+              </p>
+              <p className="mt-1 text-lg font-semibold text-white">
+                {item.song.song_title}
+              </p>
+              <p className="text-sm text-slate-300">{item.song.artist_name}</p>
+            </div>
+            <p className="text-right font-mono text-sm text-emerald-200">
+              Score {scoreFormatter.format(item.score)}
+            </p>
+          </div>
+          <dl className="mt-4 grid grid-cols-2 gap-3 text-xs text-slate-400">
+            <div>
+              <dt className="text-[0.7rem] uppercase tracking-widest text-slate-500">
+                Hits
+              </dt>
+              <dd className="text-sm text-white">{item.hit_count}</dd>
+            </div>
+            <div>
+              <dt className="text-[0.7rem] uppercase tracking-widest text-slate-500">
+                Coverage
+              </dt>
+              <dd className="text-sm text-white">
+                {ratioFormatter.format(item.coverage * 100)}%
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[0.7rem] uppercase tracking-widest text-slate-500">
+                Density
+              </dt>
+              <dd className="text-sm text-white">
+                {ratioFormatter.format(item.density * 100)}%
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[0.7rem] uppercase tracking-widest text-slate-500">
+                Source
+              </dt>
+              <dd className="text-sm text-white">{item.song.source_dir ?? "-"}</dd>
+            </div>
+          </dl>
+        </div>
+      ))}
     </div>
   );
 }

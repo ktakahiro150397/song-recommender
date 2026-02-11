@@ -20,6 +20,33 @@ body {
   font-family: var(--font-sans), system-ui, -apple-system, BlinkMacSystemFont,
     "Segoe UI", sans-serif;
   min-height: 100vh;
+  scrollbar-color: rgba(6, 182, 212, 0.7) rgba(15, 23, 42, 0.6);
+}
+
+html {
+  scrollbar-gutter: stable both-edges;
+}
+
+/* Accent scrollbars for browsers that support WebKit extensions */
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.6);
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: linear-gradient(135deg, #06b6d4, #22d3ee);
+  border-radius: 999px;
+  border: 2px solid rgba(2, 6, 23, 0.85);
+  box-shadow: 0 4px 12px rgba(6, 182, 212, 0.3);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(135deg, #22d3ee, #67e8f9);
 }
 
 a {

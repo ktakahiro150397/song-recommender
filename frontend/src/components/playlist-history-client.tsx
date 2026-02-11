@@ -1,5 +1,6 @@
 "use client";
 
+import { formatDisplayDate } from "@/lib/formatters";
 import { PlaylistHistoryEntry } from "@/types/api";
 
 type Props = {
@@ -17,7 +18,7 @@ export function PlaylistHistoryClient({ history }: Props) {
           <header className="flex flex-wrap items-center justify-between gap-4">
             <div>
               <p className="text-xs uppercase tracking-wide text-cyan-300">
-                作成日 {new Date(entry.header.created_at).toLocaleDateString()}
+                作成日 {formatDisplayDate(entry.header.created_at)}
               </p>
               <h3 className="text-xl font-semibold text-white">
                 {entry.header.playlist_name}

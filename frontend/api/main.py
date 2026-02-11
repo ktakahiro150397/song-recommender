@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from typing import Generic, Optional, TypeVar
 
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -62,6 +63,99 @@ SEGMENT_COLLECTIONS = {
 
 vector_db_clients: dict[str, SongVectorDB] = {}
 segment_db_clients: dict[str, SongVectorDB] = {}
+
+SEGMENT_CACHE_VERSION = 2
+
+
+def _normalize_distance_score(distance: float, max_distance: float) -> float:
+    if distance <= 0:
+        return 100.0
+    if max_distance <= 0:
+        return 0.0
+    if distance >= max_distance:
+        return 0.0
+    return 100.0 * (1.0 - distance / max_distance)
+
+
+def _prepare_segment_items(raw_segments: dict) -> list[dict]:
+    segment_ids = raw_segments.get("ids")
+    if segment_ids is None:
+        segment_ids = []
+    segment_embeddings = raw_segments.get("embeddings")
+    if segment_embeddings is None:
+        segment_embeddings = []
+    segment_metadatas = raw_segments.get("metadatas")
+    if segment_metadatas is None:
+        segment_metadatas = []
+
+    items: list[dict] = []
+    for seg_id, embedding, metadata in zip(
+        segment_ids,
+        segment_embeddings,
+        segment_metadatas,
+    ):
+        if embedding is None or not isinstance(metadata, dict):
+            continue
+        segment_index = metadata.get("segment_index")
+        if isinstance(segment_index, (int, float)):
+            segment_index = int(segment_index)
+        else:
+            segment_index = len(items)
+        items.append(
+            {
+                "segment_id": str(seg_id),
+                "embedding": list(embedding),
+                "metadata": metadata,
+                "segment_index": segment_index,
+            }
+        )
+
+    items.sort(key=lambda item: item["segment_index"])
+    return items
+
+
+def _filter_segment_items(
+    items: list[dict],
+    max_seconds: float,
+    skip_seconds: float,
+    skip_end_seconds: float,
+) -> list[dict]:
+    if not items:
+        return []
+
+    max_end_sec = 0.0
+    if skip_end_seconds > 0:
+        for item in items:
+            end_sec = item["metadata"].get("segment_end_sec")
+            if isinstance(end_sec, (int, float)):
+                max_end_sec = max(max_end_sec, float(end_sec))
+
+    filtered: list[dict] = []
+    for item in items:
+        metadata = item["metadata"]
+        start_sec = metadata.get("segment_start_sec")
+        end_sec = metadata.get("segment_end_sec")
+
+        if not isinstance(start_sec, (int, float)):
+            filtered.append(item)
+            continue
+
+        start_value = float(start_sec)
+        if (
+            skip_end_seconds > 0
+            and isinstance(end_sec, (int, float))
+            and max_end_sec > 0
+            and float(end_sec) > max_end_sec - skip_end_seconds
+        ):
+            continue
+        if skip_seconds > 0 and start_value < skip_seconds:
+            continue
+        if max_seconds > 0 and start_value >= max_seconds:
+            continue
+
+        filtered.append(item)
+
+    return filtered
 
 
 class ResponseMeta(BaseModel):
@@ -667,34 +761,34 @@ async def get_similar_segments(
         description="Number of similar songs to return",
     ),
     search_topk: int = Query(
-        default=8,
+        default=5,
         ge=1,
         le=50,
         description="Candidates per segment",
     ),
     max_seconds: float = Query(
-        default=90.0,
-        ge=1.0,
+        default=120.0,
+        ge=0.0,
         le=600.0,
-        description="Maximum seconds of the song to include",
+        description="Maximum seconds of the song to include (0 for no limit)",
     ),
     skip_seconds: float = Query(
-        default=0.0,
+        default=10.0,
         ge=0.0,
         le=300.0,
         description="Skip seconds from the start",
     ),
     skip_end_seconds: float = Query(
-        default=0.0,
+        default=10.0,
         ge=0.0,
         le=300.0,
         description="Skip seconds from the end",
     ),
     distance_max: float = Query(
-        default=0.7,
+        default=0.1,
         ge=0.0,
         le=2.0,
-        description="Maximum cosine distance to accept",
+        description="Maximum cosine distance to treat as a strong match",
     ),
 ):
     client = _get_segment_client(collection)
@@ -708,6 +802,7 @@ async def get_similar_segments(
 
     params_hash = build_params_hash(
         {
+            "version": SEGMENT_CACHE_VERSION,
             "collection": collection,
             "n_results": n_results,
             "search_topk": search_topk,
@@ -738,50 +833,20 @@ async def get_similar_segments(
                 status_code=502,
                 detail=f"Failed to load song segments: {exc}",
             ) from exc
-
-        segment_embeddings = raw_segments.get("embeddings")
-        segment_metadatas = raw_segments.get("metadatas")
-        if segment_embeddings is None:
-            segment_embeddings = []
-        if segment_metadatas is None:
-            segment_metadatas = []
-
-        if len(segment_embeddings) == 0:
+        segment_items = _prepare_segment_items(raw_segments)
+        if not segment_items:
             _log_warning("segment_song_not_found", **request_context)
             raise HTTPException(
                 status_code=404,
                 detail="Song segments not found in the selected collection",
             )
 
-        max_end = None
-        for meta in segment_metadatas:
-            if not isinstance(meta, dict):
-                continue
-            end_sec = meta.get("segment_end_sec")
-            if isinstance(end_sec, (int, float)):
-                max_end = end_sec if max_end is None else max(max_end, end_sec)
-
-        effective_end = max_seconds
-        if skip_end_seconds > 0 and max_end is not None:
-            end_limit = max_seconds if max_seconds > 0 else max_end
-            effective_end = max(end_limit - skip_end_seconds, 0.0)
-
-        if effective_end <= skip_seconds:
-            raise HTTPException(status_code=400, detail="Invalid segment time range")
-
-        filtered_segments: list[tuple[list[float], int]] = []
-        for emb, meta in zip(segment_embeddings, segment_metadatas):
-            if emb is None or not isinstance(meta, dict):
-                continue
-            start_sec = meta.get("segment_start_sec", 0.0)
-            end_sec = meta.get("segment_end_sec", start_sec)
-            if isinstance(start_sec, (int, float)) and start_sec < skip_seconds:
-                continue
-            if isinstance(end_sec, (int, float)) and end_sec > effective_end:
-                continue
-            seg_index = meta.get("segment_index")
-            seg_index = int(seg_index) if isinstance(seg_index, (int, float)) else 0
-            filtered_segments.append((list(emb), seg_index))
+        filtered_segments = _filter_segment_items(
+            segment_items,
+            max_seconds=max_seconds,
+            skip_seconds=skip_seconds,
+            skip_end_seconds=skip_end_seconds,
+        )
 
         if not filtered_segments:
             raise HTTPException(
@@ -789,22 +854,31 @@ async def get_similar_segments(
                 detail="Song segments not found in the selected range",
             )
 
-        totals = {
-            "total_segments": len(filtered_segments),
-            "hits": {},
+        requested_topk = max(1, search_topk)
+        total_query_segments = len(filtered_segments)
+
+        where_filter = {
+            "$and": [
+                {"excluded_from_search": {"$ne": True}},
+                {"source_song_id": {"$ne": song_id}},
+            ]
         }
 
-        for emb, seg_index in filtered_segments:
+        similar_id_counter: Counter[str] = Counter()
+        similar_score_counter: Counter[str] = Counter()
+        song_segment_hits: dict[str, set[int]] = {}
+        song_density_hits: Counter[str] = Counter()
+
+        for seg_list_index, item in enumerate(filtered_segments):
+            seg_id = item["segment_id"]
+            embedding = item["embedding"]
+            metadata = item["metadata"]
+
             try:
                 search_results = client.search_similar(
-                    emb,
-                    n_results=search_topk,
-                    where={
-                        "$and": [
-                            {"excluded_from_search": {"$ne": True}},
-                            {"source_song_id": {"$ne": song_id}},
-                        ]
-                    },
+                    embedding,
+                    n_results=requested_topk,
+                    where=where_filter,
                 )
             except Exception as exc:  # pragma: no cover - vector DB runtime errors
                 _log_error(
@@ -819,54 +893,112 @@ async def get_similar_segments(
 
             ids = (search_results.get("ids") or [[]])[0]
             distances = (search_results.get("distances") or [[]])[0]
-            metadatas = (search_results.get("metadatas") or [[]])[0]
 
-            for _, dist, meta in zip(ids, distances, metadatas):
-                if distance_max is not None and isinstance(dist, (int, float)):
-                    if dist > distance_max:
-                        continue
-                if not isinstance(meta, dict):
+            filtered_results: list[tuple[str, float]] = []
+            for candidate_id, distance in zip(ids, distances):
+                candidate_key = str(candidate_id)
+                if candidate_key == seg_id:
                     continue
-                source_song_id = meta.get("source_song_id")
-                if not source_song_id or source_song_id == song_id:
+                try:
+                    distance_value = float(distance)
+                except (TypeError, ValueError):
                     continue
+                filtered_results.append((candidate_key, distance_value))
+                if len(filtered_results) >= requested_topk:
+                    break
 
-                stats = totals["hits"].setdefault(
-                    source_song_id,
-                    {
-                        "hit_count": 0,
-                        "segment_hits": set(),
-                        "similarity_sum": 0.0,
-                        "similarity_count": 0,
-                    },
-                )
-                stats["hit_count"] += 1
-                stats["segment_hits"].add(seg_index)
-                if isinstance(dist, (int, float)):
-                    similarity = 1.0 - dist / 2.0
-                    stats["similarity_sum"] += similarity
-                    stats["similarity_count"] += 1
+            segment_index = metadata.get("segment_index")
+            if not isinstance(segment_index, int):
+                segment_index = seg_list_index
 
-        total_segments = totals["total_segments"]
-        results: list[tuple[str, float, int, float, float]] = []
-        for candidate_id, stats in totals["hits"].items():
-            if stats["similarity_count"] == 0:
-                continue
-            score = stats["similarity_sum"] / stats["similarity_count"]
-            coverage = len(stats["segment_hits"]) / total_segments
-            density = stats["hit_count"] / total_segments
-            results.append(
-                (
-                    candidate_id,
-                    score * 100.0,
-                    stats["hit_count"],
-                    coverage,
-                    density,
+            for candidate_key, distance_value in filtered_results:
+                base_song_id = candidate_key.split("::", 1)[0]
+                song_segment_hits.setdefault(base_song_id, set()).add(segment_index)
+                if distance_value < distance_max:
+                    song_density_hits.update([base_song_id])
+                similar_id_counter.update([candidate_key])
+                distance_score = _normalize_distance_score(
+                    distance_value,
+                    distance_max,
                 )
+                similar_score_counter[candidate_key] += distance_score
+
+        if not similar_id_counter:
+            cached = []
+        else:
+            song_counter: Counter[str] = Counter()
+            song_score_counter: Counter[str] = Counter()
+
+            for segment_id, count in similar_id_counter.items():
+                base_song_id = segment_id.split("::", 1)[0]
+                if base_song_id == song_id:
+                    continue
+                song_counter[base_song_id] += count
+
+            for segment_id, score in similar_score_counter.items():
+                base_song_id = segment_id.split("::", 1)[0]
+                if base_song_id == song_id:
+                    continue
+                song_score_counter[base_song_id] += score
+
+            final_score_map: dict[str, float] = {}
+            normalized_topk = max(1, search_topk)
+            for candidate_id in song_counter.keys():
+                coverage_hits = len(song_segment_hits.get(candidate_id, set()))
+                coverage = (
+                    coverage_hits / total_query_segments
+                    if total_query_segments > 0
+                    else 0.0
+                )
+                density_hits = song_density_hits.get(candidate_id, 0)
+                density_norm = (
+                    density_hits / (total_query_segments * normalized_topk)
+                    if total_query_segments > 0
+                    else 0.0
+                )
+                score_sum = song_score_counter.get(candidate_id, 0.0)
+                final_score_map[candidate_id] = (
+                    score_sum * (0.5 + 0.5 * coverage) * (0.5 + 0.5 * density_norm)
+                )
+
+            ranked_song_ids = sorted(
+                song_counter.keys(),
+                key=lambda sid: (
+                    final_score_map.get(sid, 0.0),
+                    song_score_counter.get(sid, 0.0),
+                    song_counter.get(sid, 0),
+                ),
+                reverse=True,
             )
 
-        results.sort(key=lambda item: (item[1], item[2]), reverse=True)
-        cached = results[:n_results]
+            results: list[tuple[str, float, int, float, float]] = []
+            for candidate_id in ranked_song_ids:
+                if len(results) >= n_results:
+                    break
+                coverage_hits = len(song_segment_hits.get(candidate_id, set()))
+                coverage = (
+                    coverage_hits / total_query_segments
+                    if total_query_segments > 0
+                    else 0.0
+                )
+                density_hits = song_density_hits.get(candidate_id, 0)
+                density_norm = (
+                    density_hits / (total_query_segments * normalized_topk)
+                    if total_query_segments > 0
+                    else 0.0
+                )
+                final_score = final_score_map.get(candidate_id, 0.0)
+                results.append(
+                    (
+                        candidate_id,
+                        final_score,
+                        song_counter.get(candidate_id, 0),
+                        coverage,
+                        density_norm,
+                    )
+                )
+
+            cached = results
 
         if collection_name and cached:
             save_segment_search_cache(

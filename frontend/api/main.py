@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from collections import Counter
 from typing import Generic, Optional, TypeVar
 
@@ -275,6 +276,23 @@ class PlaylistHistoryEntry(BaseModel):
     header: PlaylistHeader
     items: list[PlaylistItem]
     comments: list[PlaylistComment]
+
+
+class PlaylistCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    description: str = Field(default="", max_length=1000)
+    items: list[str] = Field(min_length=1, max_length=100)
+    privacy: str = Field(default="PRIVATE", pattern="^(PUBLIC|UNLISTED|PRIVATE)$")
+    mode: Optional[str] = Field(default=None, max_length=50)
+    header_comment: Optional[str] = Field(default=None, max_length=2000)
+
+
+class PlaylistCreateResponse(BaseModel):
+    playlist_id: str
+    playlist_url: str
+    created_count: int
+    skipped_count: int
+    unresolved_items: list[str]
 
 
 def build_envelope(
@@ -1074,6 +1092,131 @@ async def get_playlist_detail(playlist_id: str):
         raise HTTPException(
             status_code=500, detail="Database error while loading playlist detail"
         ) from exc
+
+
+@app.post(
+    "/api/playlists/create",
+    response_model=ResponseEnvelope[PlaylistCreateResponse],
+)
+async def create_playlist(payload: PlaylistCreateRequest, request: Request):
+    deduped_song_ids: list[str] = []
+    seen_song_ids: set[str] = set()
+    for item in payload.items:
+        song_id = str(item).strip()
+        if not song_id or song_id in seen_song_ids:
+            continue
+        seen_song_ids.add(song_id)
+        deduped_song_ids.append(song_id)
+
+    if not deduped_song_ids:
+        raise HTTPException(status_code=400, detail="No valid song items provided")
+
+    songs_meta = song_metadata_db.get_songs_as_dict(deduped_song_ids)
+    unresolved_items: list[str] = []
+    song_data: list[tuple[str, bool]] = []
+    playlist_items: list[dict] = []
+
+    for seq, song_id in enumerate(deduped_song_ids, start=1):
+        metadata = songs_meta.get(song_id)
+        if not metadata:
+            unresolved_items.append(song_id)
+            continue
+
+        youtube_id = str(metadata.get("youtube_id") or "").strip()
+        if youtube_id:
+            song_data.append((youtube_id, True))
+        else:
+            query = " ".join(
+                part.strip()
+                for part in [metadata.get("song_title") or "", metadata.get("artist_name") or ""]
+                if str(part).strip()
+            ).strip()
+            if not query:
+                unresolved_items.append(song_id)
+                continue
+            song_data.append((query, False))
+
+        playlist_items.append(
+            {
+                "seq": seq,
+                "song_id": song_id,
+                "cosine_distance": 0.0,
+            }
+        )
+
+    if not song_data:
+        raise HTTPException(status_code=400, detail="No resolvable songs were provided")
+
+    try:
+        from core.ytmusic_manager import YTMusicManager
+    except ModuleNotFoundError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="ytmusicapi is not installed. Run `uv sync` to install dependencies.",
+        ) from exc
+
+    browser_file = os.getenv("YTMUSIC_BROWSER_FILE", "browser.json")
+    try:
+        yt_manager = YTMusicManager(browser_file=browser_file)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "YouTube Music is not configured. "
+                f"Set YTMUSIC_BROWSER_FILE or place browser.json in api/. ({exc})"
+            ),
+        ) from exc
+
+    playlist_name = payload.name.strip()
+    playlist_result = yt_manager.create_or_replace_playlist(
+        playlist_name=playlist_name,
+        song_data=song_data,
+        description=payload.description,
+        privacy=payload.privacy,
+        verbose=False,
+    )
+
+    playlist_id = str(playlist_result.get("playlist_id") or "").strip()
+    if not playlist_id:
+        raise HTTPException(status_code=502, detail="Failed to create playlist on YouTube")
+
+    not_found_items = [str(item).strip() for item in playlist_result.get("not_found", [])]
+    unresolved_items.extend(item for item in not_found_items if item)
+    unresolved_items = list(dict.fromkeys(unresolved_items))
+
+    created_count = len(playlist_result.get("found_songs", []))
+    skipped_count = max(0, len(song_data) - created_count)
+    playlist_url = f"https://music.youtube.com/playlist?list={playlist_id}"
+
+    creator_sub = request.headers.get("x-user-sub", "public-user")
+    save_ok = playlist_db.save_playlist_result(
+        playlist_id=playlist_id,
+        playlist_name=playlist_name,
+        playlist_url=playlist_url,
+        creator_sub=creator_sub,
+        items=playlist_items[:created_count],
+        header_comment=payload.header_comment,
+    )
+    if not save_ok:
+        _log_warning(
+            "playlist_history_save_failed",
+            playlist_id=playlist_id,
+            creator_sub=creator_sub,
+            mode=payload.mode,
+            path=request.url.path,
+        )
+
+    return build_envelope(
+        PlaylistCreateResponse(
+            playlist_id=playlist_id,
+            playlist_url=playlist_url,
+            created_count=created_count,
+            skipped_count=skipped_count,
+            unresolved_items=unresolved_items,
+        ),
+        total=1,
+        limit=1,
+    )
 
 
 @app.get("/api/health")

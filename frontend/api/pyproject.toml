@@ -13,4 +13,5 @@ dependencies = [
     "pytest>=8.3.4",
     "httpx>=0.25.0",
     "chromadb>=0.5.4",
+    "ytmusicapi>=1.10.3",
 ]

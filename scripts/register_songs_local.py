@@ -39,7 +39,7 @@ _total_files = 0
 SOUND_DIRS = [
     # "data/scsp_mv",
     # "data/gakumas_mv",
-    r"F:\song-recommender-data\data",
+    r"F:\song-recommender-data\data\ALSTROEMERIA",
     # "F:/million",
 ]
 

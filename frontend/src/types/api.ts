@@ -91,6 +91,25 @@ export type PlaylistHistoryEntry = {
   comments: PlaylistComment[]
 }
 
+export type PlaylistCreatePrivacy = 'PUBLIC' | 'UNLISTED' | 'PRIVATE'
+
+export type PlaylistCreateRequest = {
+  name: string
+  description?: string
+  items: string[]
+  privacy?: PlaylistCreatePrivacy
+  mode?: string
+  header_comment?: string
+}
+
+export type PlaylistCreateResponse = {
+  playlist_id: string
+  playlist_url: string
+  created_count: number
+  skipped_count: number
+  unresolved_items: string[]
+}
+
 export type ChannelItem = {
   id: number
   channel_id: string

@@ -30,5 +30,6 @@ The endpoints will be available at `http://localhost:8000/api/...`.
 - `GET /api/songs?keyword=`
 - `GET /api/playlists`
 - `GET /api/playlists/{playlist_id}`
+- `POST /api/playlists/create`
 
 All endpoints respond using the shared `{ "data": ..., "error": ..., "meta": ... }` envelope defined in the platform docs.

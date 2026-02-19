@@ -1,9 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getSimilarSegments, getSimilarSongs, searchSongs } from "@/lib/api-client";
+import {
+  createPlaylist,
+  getSimilarSegments,
+  getSimilarSongs,
+  searchSongs,
+} from "@/lib/api-client";
 import { formatDisplayDate } from "@/lib/formatters";
-import { SegmentSimilarItem, SimilarSongItem, SongSummary } from "@/types/api";
+import {
+  PlaylistCreateResponse,
+  SegmentSimilarItem,
+  SimilarSongItem,
+  SongSummary,
+} from "@/types/api";
 
 const distanceFormatter = new Intl.NumberFormat("en-US", {
   minimumFractionDigits: 3,
@@ -27,6 +37,7 @@ const ratioFormatter = new Intl.NumberFormat("en-US", {
 
 type SimilarDb = "full" | "balance" | "minimal";
 type SegmentCollection = "mert" | "ast";
+type PlaylistCreateMode = "collection" | "mert" | "ast";
 
 const dbOptions: { value: SimilarDb; label: string }[] = [
   { value: "full", label: "Full" },
@@ -39,8 +50,14 @@ const segmentCollections: { value: SegmentCollection; label: string }[] = [
   { value: "mert", label: "MERT" },
   { value: "ast", label: "AST" },
 ];
+const playlistCreateModes: { value: PlaylistCreateMode; label: string }[] = [
+  { value: "collection", label: "コレクション検索" },
+  { value: "mert", label: "MERT" },
+  { value: "ast", label: "AST" },
+];
 const PAGE_SIZE = 30;
 const SEARCH_DEBOUNCE_MS = 300;
+const MAX_PLAYLIST_SONGS = 50;
 
 export function SongSearchClient() {
   const [keyword, setKeyword] = useState("");
@@ -63,6 +80,15 @@ export function SongSearchClient() {
   const [segmentResults, setSegmentResults] = useState<SegmentSimilarItem[]>([]);
   const [isLoadingSegments, setIsLoadingSegments] = useState(false);
   const [segmentError, setSegmentError] = useState<string | null>(null);
+  const [playlistCreateMode, setPlaylistCreateMode] =
+    useState<PlaylistCreateMode>("collection");
+  const [playlistSongCount, setPlaylistSongCount] = useState(10);
+  const [isCreatingPlaylist, setIsCreatingPlaylist] = useState(false);
+  const [playlistCreateError, setPlaylistCreateError] = useState<string | null>(
+    null
+  );
+  const [createdPlaylist, setCreatedPlaylist] =
+    useState<PlaylistCreateResponse | null>(null);
   const [isResultsPanelOpen, setIsResultsPanelOpen] = useState(false);
   const loadIdRef = useRef(0);
   const offsetRef = useRef(0);
@@ -254,8 +280,78 @@ export function SongSearchClient() {
   useEffect(() => {
     if (!selectedSong) {
       setIsResultsPanelOpen(false);
+      setCreatedPlaylist(null);
+      setPlaylistCreateError(null);
     }
   }, [selectedSong]);
+
+  const handleCreatePlaylist = async () => {
+    if (!selectedSong) return;
+
+    setIsCreatingPlaylist(true);
+    setPlaylistCreateError(null);
+    setCreatedPlaylist(null);
+
+    try {
+      let songIds: string[] = [];
+
+      if (playlistCreateMode === "collection") {
+        const response = await getSimilarSongs(selectedSong.song_id, {
+          db: similarDb,
+          nResults: playlistSongCount,
+        });
+        if (response.error) {
+          throw new Error(response.error.message);
+        }
+        songIds = (response.data ?? [])
+          .slice(0, playlistSongCount)
+          .map((item) => item.song.song_id);
+      } else {
+        const response = await getSimilarSegments(selectedSong.song_id, {
+          collection: playlistCreateMode,
+          nResults: playlistSongCount,
+        });
+        if (response.error) {
+          throw new Error(response.error.message);
+        }
+        songIds = (response.data ?? [])
+          .slice(0, playlistSongCount)
+          .map((item) => item.song.song_id);
+      }
+
+      if (!songIds.length) {
+        throw new Error("プレイリストに追加できる候補曲が見つかりませんでした");
+      }
+
+      const modeLabel =
+        playlistCreateMode === "collection"
+          ? `collection-${similarDb}`
+          : playlistCreateMode;
+      const timestamp = new Date().toISOString().slice(0, 19).replace("T", " ");
+
+      const response = await createPlaylist({
+        name: `${selectedSong.song_title} (${modeLabel}) ${timestamp}`,
+        description: `${selectedSong.song_title} を起点に ${modeLabel} で生成`,
+        items: songIds,
+        privacy: "PRIVATE",
+        mode: modeLabel,
+      });
+
+      if (response.error) {
+        throw new Error(response.error.message);
+      }
+
+      setCreatedPlaylist(response.data);
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "プレイリストの作成に失敗しました";
+      setPlaylistCreateError(message);
+    } finally {
+      setIsCreatingPlaylist(false);
+    }
+  };
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -344,6 +440,85 @@ export function SongSearchClient() {
 
   const renderSimilarityPanels = () => (
     <>
+      <section className="space-y-4 rounded-3xl border border-white/10 bg-slate-900/60 p-6">
+        <div className="flex flex-wrap items-end gap-4">
+          <div className="flex-1">
+            <p className="text-xs uppercase tracking-[0.4em] text-emerald-300">
+              Playlist Create
+            </p>
+            <h2 className="mt-1 text-2xl font-semibold text-white">
+              プレイリスト作成
+            </h2>
+            <p className="mt-2 text-sm text-slate-300">
+              作成方式を選び、曲数を指定してプレイリストを生成します。
+            </p>
+          </div>
+          <div className="flex flex-wrap items-end gap-4 text-sm text-slate-200">
+            <label className="flex flex-col gap-1">
+              方式
+              <select
+                className="rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-white"
+                value={playlistCreateMode}
+                onChange={(event) =>
+                  setPlaylistCreateMode(event.target.value as PlaylistCreateMode)
+                }
+              >
+                {playlistCreateModes.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1">
+              曲数
+              <input
+                className="w-24 rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-white"
+                type="number"
+                min={1}
+                max={MAX_PLAYLIST_SONGS}
+                value={playlistSongCount}
+                onChange={(event) => {
+                  const value = Number(event.target.value);
+                  if (!Number.isFinite(value)) return;
+                  const clamped = Math.max(1, Math.min(MAX_PLAYLIST_SONGS, value));
+                  setPlaylistSongCount(clamped);
+                }}
+              />
+            </label>
+            <button
+              className="rounded-xl border border-emerald-400 bg-emerald-400/10 px-4 py-2 font-semibold text-emerald-100 transition hover:bg-emerald-400/20 disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={handleCreatePlaylist}
+              disabled={!selectedSong || isCreatingPlaylist}
+            >
+              {isCreatingPlaylist ? "作成中..." : "プレイリストを作成"}
+            </button>
+          </div>
+        </div>
+        {playlistCreateMode === "collection" ? (
+          <p className="text-xs text-slate-400">
+            コレクション検索は現在の DB 設定（{similarDb.toUpperCase()}）を使用します。
+          </p>
+        ) : null}
+        {playlistCreateError ? (
+          <p className="text-sm text-rose-300">{playlistCreateError}</p>
+        ) : null}
+        {createdPlaylist ? (
+          <p className="text-sm text-emerald-200">
+            作成完了: {createdPlaylist.created_count}曲 / スキップ
+            {createdPlaylist.skipped_count}曲 ・{" "}
+            <a
+              className="underline decoration-emerald-300 underline-offset-4 hover:text-emerald-100"
+              href={createdPlaylist.playlist_url}
+              target="_blank"
+              rel="noreferrer"
+            >
+              プレイリストを開く
+            </a>
+          </p>
+        ) : null}
+      </section>
+
       <section className="space-y-6 rounded-3xl border border-white/10 bg-slate-900/60 p-6">
         <div className="flex flex-wrap items-end gap-4">
           <div className="flex-1">

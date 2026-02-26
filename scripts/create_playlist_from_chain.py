@@ -9,7 +9,12 @@
 
 import argparse
 import re
+import sys
 from datetime import datetime
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backend"))
+
 from colorama import Fore, Style, init
 
 from core.db_manager import SongVectorDB

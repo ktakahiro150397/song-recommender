@@ -21,7 +21,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backend"))
 from core.db_manager import SongVectorDB
 from core.feature_extractor import FeatureExtractor
 from core.song_queue_db import SongQueueDB

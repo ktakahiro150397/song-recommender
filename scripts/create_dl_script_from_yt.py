@@ -3,7 +3,7 @@ import sys
 import traceback
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backend"))
 
 from attr import dataclass
 from core.ytmusic_manager import YTMusicManager

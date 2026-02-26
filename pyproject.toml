@@ -10,14 +10,11 @@ dependencies = [
     "librosa>=0.10.0",
     "numpy>=1.24.0",
     "ytmusicapi>=1.11.5",
-    "streamlit>=1.31.0",
     "pandas>=2.0.0",
     "python-dotenv>=1.0.0",
     "sqlalchemy>=2.0.0",
     "pymysql>=1.1.0",
     "cryptography>=41.0.0",
-    "plotly>=5.0.0",
-    "authlib>=1.6.7",
     "regex>=2026.1.15",
 ]
 
@@ -40,7 +37,7 @@ url = "https://download.pytorch.org/whl/cu128"
 explicit = true
 
 [tool.uv.workspace]
-members = ["frontend/api"]
+members = ["backend"]
 
 # [[tool.uv.index]]
 # url = "https://pypi.org/simple"

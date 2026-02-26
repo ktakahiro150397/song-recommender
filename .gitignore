@@ -187,3 +187,7 @@ output_scripts/
 data/chroma_db_*/**
 data/*
 .streamlit/secrets.toml
+
+# Next.js の src/lib/ は lib/ パターンに誤マッチするため除外を解除
+!frontend/src/lib/
+!frontend/src/lib/*

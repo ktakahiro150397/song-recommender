@@ -4,14 +4,18 @@
 各処理ステップの実行時間を計測して、ボトルネックを特定する
 """
 
+import sys
 import time
 from datetime import datetime, timedelta
+from pathlib import Path
 import statistics
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backend"))
+
 from core.db_manager import SongVectorDB
-from create_playlist_from_chain import chain_search_to_list
 from core import song_metadata_db
 from config import DB_CONFIGS
-import sys
+from create_playlist_from_chain import chain_search_to_list
 
 # テスト用の曲ID
 TEST_SONG = "Domestic De Violence [Na5PCi8YMYo].wav"

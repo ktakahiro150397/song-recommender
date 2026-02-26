@@ -45,55 +45,72 @@ services:
     networks:
       - app-network
 
-  # Streamlit アプリケーション
-  song-recommender:
-    image: ghcr.io/ktakahiro150397/song-recommender:latest
-    container_name: song-recommender
+  # FastAPI バックエンド
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: backend
     restart: unless-stopped
     depends_on:
       mysql:
-        condition: service_started
+        condition: service_healthy
       chromadb:
-        condition: service_started
+        condition: service_healthy
     ports:
-      - "9100:8501"
+      - "8080:8080"
     volumes:
-      # DBファイルを永続化（ホストのdataディレクトリをマウント）
       - ./data:/app/data
-      # アップロードファイルを永続化
-      - ./upload:/app/upload
-      # OAuth認証ファイル（YouTube Music API用）
       - ./oauth.json:/app/oauth.json:ro
       - ./browser.json:/app/browser.json:ro
-      # Streamlit認証設定（ログイン機能用）
-      - ./.streamlit/secrets.toml:/app/.streamlit/secrets.toml:ro
     environment:
-      - STREAMLIT_SERVER_PORT=8501
-      - STREAMLIT_SERVER_ADDRESS=0.0.0.0
-      - STREAMLIT_SERVER_HEADLESS=true
-      - CHROMA_HOST=${CHROMA_HOST}
-      - CHROMA_PORT=${CHROMA_PORT}
+      - CHROMA_HOST=${CHROMA_HOST:-chromadb}
+      - CHROMA_PORT=${CHROMA_PORT:-8000}
       - MYSQL_HOST=${MYSQL_HOST:-mysql}
       - MYSQL_PORT=${MYSQL_PORT:-3306}
       - MYSQL_DATABASE=${MYSQL_DATABASE:-song_recommender}
       - MYSQL_USER=${MYSQL_USER:-app_user}
       - MYSQL_PASSWORD=${MYSQL_PASSWORD:-app_password}
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8501/_stcore/health" ]
+      test: [ "CMD", "curl", "-f", "http://localhost:8080/api/stats/overview" ]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
+      start_period: 20s
     networks:
       - app-network
+
+  # Next.js フロントエンド
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    environment:
+      - API_BASE_URL=http://backend:8080
+      - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3000}
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+    networks:
+      - app-network
+
+  # Cloudflare トンネル（外部公開）
   cloudflared:
     image: cloudflare/cloudflared:latest
     depends_on:
-      - song-recommender
+      - frontend
     command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
     networks:
       - app-network
 
+  # Docker イメージ更新監視
   whatsupdocker:
     image: getwud/wud
     container_name: wud
@@ -103,7 +120,7 @@ services:
       - WUD_REGISTRY_GHCR_USERNAME=ktakahiro150397
       - WUD_TRIGGER_DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/1351069308519976990/BwjWjiHmFk5XIBL5MUYFMfS4_pdXL3CavNOOJm3pxy0cvRJjzQUAE8A45cACwh7DlBNc
     ports:
-      - 3000:3000
+      - 3001:3000
     networks:
       - app-network
 networks:
